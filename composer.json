@@ -1,0 +1,15 @@
+{
+  "name": "cosmicgdpsowner/night-core-v1",
+  "description": "Standalone NightGDPS server core",
+  "type": "project",
+  "license": "GPL-3.0-or-later",
+  "require": {
+    "php": ">=8.1",
+    "ext-pdo": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "NightCore\\": "src/"
+    }
+  }
+}

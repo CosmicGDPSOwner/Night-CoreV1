@@ -20,6 +20,15 @@ Initial reference: `Cvolton/GMDprivateServer` at commit `719dfe36c622a54c8162b07
 
 Night Core V1 is a modified/derived project and keeps the upstream GPLv3 licensing requirements. See `LICENSE` and `docs/UPSTREAM.md`.
 
+## Bootstrap
+
+1. Copy `.env.example` to `.env` on the server.
+2. Fill in a dedicated test database user and database name.
+3. Point the web server document root at `public/`.
+4. Open `/health.php`; `ok` means PHP and the database connection are working.
+
+Do not point this bootstrap at the production NightGDPS database yet.
+
 ## Status
 
-Early bootstrap. The first milestone is a minimal core that can connect to a test database and expose a health endpoint before Geometry Dash endpoints are migrated one group at a time.
+Bootstrap complete. Next milestone: port authentication/accounts while preserving the current NightGDPS database contract.

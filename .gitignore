@@ -1,0 +1,19 @@
+# Runtime configuration
+.env
+.env.*
+!.env.example
+
+# Dependencies
+/vendor/
+
+# Runtime data
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/cache/*
+!/storage/cache/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,34 +1,65 @@
 # Night Core V1
 
-Night Core V1 is the standalone server core for **NightGDPS**.
+Night Core V1 is a **universal Geometry Dash private-server core** developed for NightGDPS but designed so other GDPS installations can configure and use the same shared core.
 
-The project is being built as a clean, compatibility-first replacement for the current hosted GDPS backend. It uses the protocol behavior and implementation experience of [Cvolton/GMDprivateServer](https://github.com/Cvolton/GMDprivateServer) as its upstream reference while moving NightGDPS-specific behavior into a smaller, documented codebase that we fully control.
+It keeps Geometry Dash/Cvolton compatibility at the protocol boundary while moving server behavior into smaller reusable modules.
 
-## Goals
+## Current principles
 
-- Keep Geometry Dash 2.2-compatible server endpoints.
-- Separate protocol endpoints from business logic.
-- Keep database changes explicit through migrations.
-- Centralize authentication, permissions and database access.
-- Preserve NightGDPS features such as Events, moderator commands and Creator Points.
-- Avoid hosting-panel-specific code and hidden dependencies.
-- Never store production credentials or secrets in Git.
+- Geometry Dash 2.2-compatible endpoint behavior.
+- Installation-neutral server name, base path and database settings.
+- Optional database table prefix for fresh installations.
+- Thin public endpoints; SQL and business logic live in `src/`.
+- Explicit ordered SQL migrations.
+- Shared GJP/GJP2 authentication instead of copy-pasted endpoint auth.
+- MySQL/MariaDB production target.
+- NightGDPS features are optional modules, not assumptions inside the common core.
+- No production passwords, tokens or hosting credentials in Git.
 
 ## Upstream baseline
 
-Initial reference: `Cvolton/GMDprivateServer` at commit `719dfe36c622a54c8162b07967241fce79b2497c`.
+Compatibility reference: `Cvolton/GMDprivateServer` at commit `719dfe36c622a54c8162b07967241fce79b2497c`.
 
-Night Core V1 is a modified/derived project and keeps the upstream GPLv3 licensing requirements. See `LICENSE` and `docs/UPSTREAM.md`.
+Night Core V1 is a modified/derived project and preserves the applicable GPLv3 requirements. See `LICENSE` and `docs/UPSTREAM.md`.
 
-## Bootstrap
+## Implemented
 
-1. Copy `.env.example` to `.env` on the server.
-2. Fill in a dedicated test database user and database name.
-3. Point the web server document root at `public/`.
-4. Open `/health.php`; `ok` means PHP and the database connection are working.
+- reusable configuration and PDO database layer;
+- safe table-prefix handling and schema inspection;
+- migration runner;
+- health/info endpoints;
+- fresh-install account schema;
+- `registerGJAccount.php`;
+- `loginGJAccount.php`;
+- password + GJP2 hashing compatible with the Cvolton implementation;
+- shared legacy GJP/GJP2 authenticator for future game endpoints;
+- login rate limiting;
+- optional legacy UDID level ownership migration;
+- CLI `doctor`, `migrate`, and DB-free `self-test`;
+- Docker-based local MariaDB test environment;
+- PHP 8.1/8.2/8.3 CI checks.
 
-Do not point this bootstrap at the production NightGDPS database yet.
+Both `/accounts/loginGJAccount.php` and `/loginGJAccount.php` compatibility paths are provided, with the same rule for registration.
 
-## Status
+## Quick local test
 
-Bootstrap complete. Next milestone: port authentication/accounts while preserving the current NightGDPS database contract.
+With Docker Desktop installed:
+
+```bash
+docker compose up --build -d
+docker compose exec web php bin/nightcore migrate
+docker compose exec web php bin/nightcore doctor
+docker compose exec web php bin/nightcore self-test
+```
+
+Then open `http://127.0.0.1:8080/health.php`. It should return `ok`.
+
+Detailed test steps are in `docs/TESTING.md`.
+
+## Safety
+
+Do **not** point the development build at a production GDPS database. Test against a fresh database or a disposable copy first.
+
+## Next milestone
+
+Expand the universal protocol layer with account/profile endpoints, then port level upload/download/search as separate modules.

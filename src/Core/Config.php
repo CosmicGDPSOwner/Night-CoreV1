@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace NightCore\Core;
 
 final class Config
@@ -47,15 +49,34 @@ final class Config
         return $value === false ? $default : $value;
     }
 
-    /** @return array{host:string,port:int,name:string,user:string,password:string} */
+    public static function getBool(string $key, bool $default = false): bool
+    {
+        $value = self::get($key);
+        if ($value === null) {
+            return $default;
+        }
+
+        $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        return $parsed ?? $default;
+    }
+
+    public static function getInt(string $key, int $default): int
+    {
+        $value = self::get($key);
+        return $value !== null && is_numeric($value) ? (int) $value : $default;
+    }
+
+    /** @return array{dsn:?string,host:string,port:int,name:string,user:string,password:string,charset:string} */
     public static function database(): array
     {
         return [
+            'dsn' => self::get('DB_DSN'),
             'host' => self::get('DB_HOST', '127.0.0.1') ?? '127.0.0.1',
-            'port' => (int) (self::get('DB_PORT', '3306') ?? '3306'),
-            'name' => self::get('DB_NAME', 'nightgdps') ?? 'nightgdps',
-            'user' => self::get('DB_USER', 'nightcore') ?? 'nightcore',
+            'port' => self::getInt('DB_PORT', 3306),
+            'name' => self::get('DB_NAME', 'gdps') ?? 'gdps',
+            'user' => self::get('DB_USER', 'gdps') ?? 'gdps',
             'password' => self::get('DB_PASS', '') ?? '',
+            'charset' => self::get('DB_CHARSET', 'utf8mb4') ?? 'utf8mb4',
         ];
     }
 }

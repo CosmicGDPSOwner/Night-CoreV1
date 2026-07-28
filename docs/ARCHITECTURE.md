@@ -1,35 +1,41 @@
 # Architecture
 
-Night Core V1 is organized around a strict boundary between Geometry Dash compatibility and NightGDPS business logic.
+Night Core V1 separates **Geometry Dash protocol compatibility**, **shared GDPS services**, and **installation-specific modules**.
 
 ## Layout
 
-- `public/` — public HTTP entry points. Geometry Dash endpoint filenames will live here as thin wrappers only.
-- `src/Core/` — configuration, database, responses, authentication and shared infrastructure.
-- `src/Protocol/` — Geometry Dash request parsing and protocol serialization.
-- `src/Domain/` — accounts, levels, moderation, Events, Creator Points and other NightGDPS logic.
-- `migrations/` — ordered database migrations. Schema changes must never be hidden inside request handlers.
-- `storage/` — runtime logs/cache; production data and secrets are not committed.
+- `public/` — public HTTP entry points. These are thin wrappers only.
+- `src/Core/` — configuration, database, migrations, request/response helpers and schema inspection.
+- `src/Protocol/` — Geometry Dash encodings and protocol-specific helpers.
+- `src/Security/` — password, GJP/GJP2 and shared authentication logic.
+- `src/Domain/` — reusable GDPS business modules such as Accounts and Levels.
+- `migrations/` — ordered schema changes for fresh installations and core-owned tables.
+- `docs/` — compatibility, upstream and testing documentation.
 
-## Rules
+## Universal-core rules
 
-1. Public endpoint files should contain almost no SQL or business logic.
-2. Database access uses PDO prepared statements.
-3. Secrets come from environment configuration, never source control.
-4. Existing NightGDPS database compatibility is preserved first; schema cleanup happens through migrations later.
-5. Geometry Dash responses remain protocol-compatible even when internals are rewritten.
-6. NightGDPS-specific behavior should be explicit and documented instead of mixed into upstream code invisibly.
+1. Server name, public path, database connection and table prefix are configuration, not source edits.
+2. Public endpoint files contain almost no SQL or business logic.
+3. Shared services use PDO prepared statements.
+4. Secrets come from environment configuration and are never committed.
+5. Existing Cvolton-compatible installations are inspected before optional behavior is used.
+6. Geometry Dash responses stay compatible even when internals are rewritten.
+7. NightGDPS-only behavior is added as an optional module and may not become a dependency of the common core.
+8. Database changes are represented by migrations rather than hidden `ALTER TABLE` calls inside endpoints.
 
-## Migration order
+## Development order
 
-1. Bootstrap / DB / config / health.
-2. Authentication and accounts.
-3. Level upload, download and search.
-4. Comments and songs required by the game client.
-5. Saves and leaderboard data.
-6. Roles, permissions and moderator commands.
-7. Daily / Weekly / Event.
-8. Creator Points and shared CP.
-9. Compatibility audit against the live NightGDPS server before cutover.
+1. Core / DB / config / health — implemented.
+2. Authentication and account registration/login — implemented.
+3. Remaining account/profile endpoints.
+4. Level upload, download and search.
+5. Comments and songs required by the game client.
+6. Saves and leaderboard data.
+7. Generic roles, permissions and moderator commands.
+8. Daily / Weekly.
+9. Optional Event module.
+10. Generic Creator Points service with installation-configurable policy.
+11. NightGDPS-specific modules.
+12. Compatibility audit against a copied production database before cutover.
 
-The current GlowHosting server remains the production reference until a module passes compatibility testing on the new VDS environment.
+The current NightGDPS/GlowHosting server remains a behavior reference only. The universal core must also work with a fresh disposable database that contains no NightGDPS-specific tables.

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace NightCore\Core;
 
 use PDO;
@@ -8,15 +10,19 @@ use RuntimeException;
 
 final class Database
 {
-    /** @param array{host:string,port:int,name:string,user:string,password:string} $config */
+    /** @param array{dsn:?string,host:string,port:int,name:string,user:string,password:string,charset:string} $config */
     public static function connect(array $config): PDO
     {
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-            $config['host'],
-            $config['port'],
-            $config['name']
-        );
+        $dsn = $config['dsn'];
+        if ($dsn === null || $dsn === '') {
+            $dsn = sprintf(
+                'mysql:host=%s;port=%d;dbname=%s;charset=%s',
+                $config['host'],
+                $config['port'],
+                $config['name'],
+                $config['charset']
+            );
+        }
 
         try {
             return new PDO($dsn, $config['user'], $config['password'], [

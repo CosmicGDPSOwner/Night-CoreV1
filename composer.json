@@ -1,6 +1,6 @@
 {
   "name": "cosmicgdpsowner/night-core-v1",
-  "description": "Standalone NightGDPS server core",
+  "description": "Universal Geometry Dash private-server core",
   "type": "project",
   "license": "GPL-3.0-or-later",
   "require": {

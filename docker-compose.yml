@@ -1,0 +1,40 @@
+services:
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: gdps
+      MARIADB_USER: gdps
+      MARIADB_PASSWORD: gdps-test
+      MARIADB_ROOT_PASSWORD: root-test
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: .
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    environment:
+      SERVER_NAME: Night Core Local Test
+      SERVER_ID: night-core-local
+      CORE_PROFILE: cvolton
+      BASE_PATH: /
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: gdps
+      DB_USER: gdps
+      DB_PASS: gdps-test
+      DB_CHARSET: utf8mb4
+      ACCOUNT_PREACTIVATE: 1
+      LEGACY_MIGRATE_UDID_LEVELS: 1
+      AUTH_MAX_ATTEMPTS: 8
+      AUTH_WINDOW_SECONDS: 3600
+      TRUST_PROXY_HEADERS: 0
+    ports:
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy

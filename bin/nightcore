@@ -1,0 +1,67 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use NightCore\Core\Application;
+use NightCore\Core\Config;
+use NightCore\Core\MigrationRunner;
+
+$root = dirname(__DIR__);
+require_once $root . '/autoload.php';
+Config::loadEnv($root . '/.env');
+
+$command = $argv[1] ?? 'help';
+
+try {
+    if ($command === 'self-test') {
+        require $root . '/tests/selftest.php';
+        exit(0);
+    }
+
+    /** @var Application $app */
+    $app = Application::boot();
+
+    if ($command === 'migrate') {
+        $runner = new MigrationRunner($app->db(), $app->tables());
+        $applied = $runner->migrate($root . '/migrations');
+        if ($applied === []) {
+            echo "No pending migrations.\n";
+        } else {
+            foreach ($applied as $migration) {
+                echo "Applied: {$migration}\n";
+            }
+        }
+        exit(0);
+    }
+
+    if ($command === 'doctor') {
+        echo 'Night Core V1 doctor' . PHP_EOL;
+        echo 'PHP: ' . PHP_VERSION . PHP_EOL;
+        echo 'Server: ' . $app->serverName() . PHP_EOL;
+        echo 'Profile: ' . $app->profile() . PHP_EOL;
+        echo 'Table prefix: ' . ($app->tables()->prefix() === '' ? '(none)' : $app->tables()->prefix()) . PHP_EOL;
+        echo 'Database: OK' . PHP_EOL;
+
+        $required = ['accounts', 'users'];
+        $ok = true;
+        foreach ($required as $table) {
+            $exists = $app->schema()->tableExists($table);
+            echo $table . ': ' . ($exists ? 'OK' : 'MISSING') . PHP_EOL;
+            $ok = $ok && $exists;
+        }
+
+        echo 'core_auth_attempts: ' . ($app->schema()->tableExists('core_auth_attempts') ? 'OK' : 'optional/missing') . PHP_EOL;
+        exit($ok ? 0 : 2);
+    }
+
+    echo "Night Core V1\n\n";
+    echo "Commands:\n";
+    echo "  php bin/nightcore self-test   Run DB-free core tests\n";
+    echo "  php bin/nightcore doctor      Check configuration and schema\n";
+    echo "  php bin/nightcore migrate     Apply pending SQL migrations\n";
+    exit($command === 'help' ? 0 : 1);
+} catch (Throwable $e) {
+    fwrite(STDERR, 'Night Core error: ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}

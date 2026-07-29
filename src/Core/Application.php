@@ -7,11 +7,19 @@ namespace NightCore\Core;
 use NightCore\Domain\Accounts\AccountRepository;
 use NightCore\Domain\Accounts\AccountService;
 use NightCore\Domain\Accounts\AuthRateLimiter;
+use NightCore\Domain\Content\ContentRepository;
+use NightCore\Domain\Content\ContentService;
 use NightCore\Domain\Levels\LevelRepository;
 use NightCore\Domain\Levels\LevelService;
 use NightCore\Domain\Levels\LevelStorage;
+use NightCore\Domain\Moderation\ModerationRepository;
+use NightCore\Domain\Moderation\ModerationService;
 use NightCore\Domain\Profiles\ProfileRepository;
 use NightCore\Domain\Profiles\ProfileService;
+use NightCore\Domain\Progress\ProgressRepository;
+use NightCore\Domain\Progress\ProgressService;
+use NightCore\Domain\Social\SocialRepository;
+use NightCore\Domain\Social\SocialService;
 use NightCore\Security\AccountAuthenticator;
 use NightCore\Security\PasswordService;
 use PDO;
@@ -24,6 +32,10 @@ final class Application
     private AuthRateLimiter $rateLimiter;
     private ProfileRepository $profileRepository;
     private LevelRepository $levelRepository;
+    private ContentRepository $contentRepository;
+    private SocialRepository $socialRepository;
+    private ProgressRepository $progressRepository;
+    private ModerationRepository $moderationRepository;
 
     public function __construct(private PDO $db, private TableNames $tables)
     {
@@ -39,6 +51,10 @@ final class Application
         );
         $this->profileRepository = new ProfileRepository($db, $tables);
         $this->levelRepository = new LevelRepository($db, $tables);
+        $this->contentRepository = new ContentRepository($db, $tables);
+        $this->socialRepository = new SocialRepository($db, $tables);
+        $this->progressRepository = new ProgressRepository($db, $tables);
+        $this->moderationRepository = new ModerationRepository($db, $tables);
     }
 
     public static function boot(): self
@@ -108,6 +124,35 @@ final class Application
         );
     }
 
+    public function content(): ContentService
+    {
+        return new ContentService($this->contentRepository, $this->accountRepository, $this->authenticator());
+    }
+
+    public function social(): SocialService
+    {
+        return new SocialService($this->socialRepository, $this->accountRepository, $this->authenticator());
+    }
+
+    public function progress(): ProgressService
+    {
+        return new ProgressService(
+            $this->progressRepository,
+            $this->accountRepository,
+            $this->authenticator(),
+            max(1024, Config::getInt('SAVE_MAX_BYTES', 16777216))
+        );
+    }
+
+    public function moderation(): ModerationService
+    {
+        return new ModerationService(
+            $this->moderationRepository,
+            $this->authenticator(),
+            $this->adminAccountIDs()
+        );
+    }
+
     public function serverName(): string
     {
         return Config::get('SERVER_NAME', 'GDPS') ?? 'GDPS';
@@ -116,5 +161,22 @@ final class Application
     public function profile(): string
     {
         return Config::get('CORE_PROFILE', 'cvolton') ?? 'cvolton';
+    }
+
+    /** @return array<int,int> */
+    private function adminAccountIDs(): array
+    {
+        $raw = trim(Config::get('CORE_ADMIN_ACCOUNT_IDS', '') ?? '');
+        if ($raw === '') {
+            return [];
+        }
+        $ids = [];
+        foreach (explode(',', $raw) as $part) {
+            $part = trim($part);
+            if ($part !== '' && ctype_digit($part) && (int) $part > 0) {
+                $ids[] = (int) $part;
+            }
+        }
+        return array_values(array_unique($ids));
     }
 }

@@ -15,6 +15,7 @@ use NightCore\Domain\Levels\LevelService;
 use NightCore\Domain\Levels\LevelStorage;
 use NightCore\Domain\Moderation\ModerationRepository;
 use NightCore\Domain\Moderation\ModerationService;
+use NightCore\Domain\Profiles\ProfileContextRepository;
 use NightCore\Domain\Profiles\ProfileRepository;
 use NightCore\Domain\Profiles\ProfileService;
 use NightCore\Domain\Progress\ProgressRepository;
@@ -32,6 +33,7 @@ final class Application
     private AccountRepository $accountRepository;
     private AuthRateLimiter $rateLimiter;
     private ProfileRepository $profileRepository;
+    private ProfileContextRepository $profileContextRepository;
     private LevelRepository $levelRepository;
     private ContentRepository $contentRepository;
     private SocialRepository $socialRepository;
@@ -51,6 +53,7 @@ final class Application
             Config::getInt('AUTH_WINDOW_SECONDS', 3600)
         );
         $this->profileRepository = new ProfileRepository($db, $tables);
+        $this->profileContextRepository = new ProfileContextRepository($db, $tables);
         $this->levelRepository = new LevelRepository($db, $tables);
         $this->contentRepository = new ContentRepository($db, $tables);
         $this->socialRepository = new SocialRepository($db, $tables);
@@ -101,7 +104,9 @@ final class Application
         return new ProfileService(
             $this->profileRepository,
             $this->accountRepository,
-            $this->authenticator()
+            $this->authenticator(),
+            $this->profileContextRepository,
+            $this->adminAccountIDs()
         );
     }
 

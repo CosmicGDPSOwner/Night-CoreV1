@@ -32,8 +32,8 @@ final class SocialRepository
 
     public function isBlockedEither(int $a, int $b): bool
     {
-        $query = $this->db->prepare('SELECT 1 FROM ' . $this->tables->get('core_blocks') . ' WHERE (ownerAccountID = :a AND blockedAccountID = :b) OR (ownerAccountID = :b AND blockedAccountID = :a) LIMIT 1');
-        $query->execute([':a' => $a, ':b' => $b]);
+        $query = $this->db->prepare('SELECT 1 FROM ' . $this->tables->get('core_blocks') . ' WHERE (ownerAccountID = :a1 AND blockedAccountID = :b1) OR (ownerAccountID = :b2 AND blockedAccountID = :a2) LIMIT 1');
+        $query->execute([':a1' => $a, ':b1' => $b, ':b2' => $b, ':a2' => $a]);
         return $query->fetchColumn() !== false;
     }
 
@@ -86,8 +86,8 @@ final class SocialRepository
             $newForHigh = $high === $otherAccountID ? 1 : 0;
             $add = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_friendships') . ' (accountLow, accountHigh, newForLow, newForHigh, createdAt) VALUES (:low, :high, :newForLow, :newForHigh, :createdAt) ON DUPLICATE KEY UPDATE newForLow = GREATEST(newForLow, VALUES(newForLow)), newForHigh = GREATEST(newForHigh, VALUES(newForHigh))');
             $add->execute([':low' => $low, ':high' => $high, ':newForLow' => $newForLow, ':newForHigh' => $newForHigh, ':createdAt' => time()]);
-            $delete = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friend_requests') . ' WHERE (fromAccountID = :me AND toAccountID = :other) OR (fromAccountID = :other AND toAccountID = :me)');
-            $delete->execute([':me' => $accountID, ':other' => $otherAccountID]);
+            $delete = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friend_requests') . ' WHERE (fromAccountID = :me1 AND toAccountID = :other1) OR (fromAccountID = :other2 AND toAccountID = :me2)');
+            $delete->execute([':me1' => $accountID, ':other1' => $otherAccountID, ':other2' => $otherAccountID, ':me2' => $accountID]);
             $this->db->commit();
             return true;
         } catch (Throwable $e) {
@@ -100,8 +100,8 @@ final class SocialRepository
 
     public function deleteRequest(int $accountID, int $otherAccountID): bool
     {
-        $query = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friend_requests') . ' WHERE (fromAccountID = :me AND toAccountID = :other) OR (fromAccountID = :other AND toAccountID = :me)');
-        $query->execute([':me' => $accountID, ':other' => $otherAccountID]);
+        $query = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friend_requests') . ' WHERE (fromAccountID = :me1 AND toAccountID = :other1) OR (fromAccountID = :other2 AND toAccountID = :me2)');
+        $query->execute([':me1' => $accountID, ':other1' => $otherAccountID, ':other2' => $otherAccountID, ':me2' => $accountID]);
         return $query->rowCount() > 0;
     }
 
@@ -123,8 +123,8 @@ final class SocialRepository
             [$low, $high] = $this->pair($accountID, $otherAccountID);
             $deleteFriend = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friendships') . ' WHERE accountLow = :low AND accountHigh = :high');
             $deleteFriend->execute([':low' => $low, ':high' => $high]);
-            $deleteReq = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friend_requests') . ' WHERE (fromAccountID = :me AND toAccountID = :other) OR (fromAccountID = :other AND toAccountID = :me)');
-            $deleteReq->execute([':me' => $accountID, ':other' => $otherAccountID]);
+            $deleteReq = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friend_requests') . ' WHERE (fromAccountID = :me1 AND toAccountID = :other1) OR (fromAccountID = :other2 AND toAccountID = :me2)');
+            $deleteReq->execute([':me1' => $accountID, ':other1' => $otherAccountID, ':other2' => $otherAccountID, ':me2' => $accountID]);
             $insert = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_blocks') . ' (ownerAccountID, blockedAccountID, createdAt) VALUES (:me, :other, :createdAt) ON DUPLICATE KEY UPDATE createdAt = VALUES(createdAt)');
             $insert->execute([':me' => $accountID, ':other' => $otherAccountID, ':createdAt' => time()]);
             $this->db->commit();
@@ -149,8 +149,8 @@ final class SocialRepository
     {
         $states = [];
         if ($type === 0) {
-            $query = $this->db->prepare('SELECT CASE WHEN f.accountLow = :me THEN f.accountHigh ELSE f.accountLow END AS accountID, CASE WHEN f.accountLow = :me THEN f.newForLow ELSE f.newForHigh END AS isNew FROM ' . $this->tables->get('core_friendships') . ' f WHERE f.accountLow = :me OR f.accountHigh = :me');
-            $query->execute([':me' => $accountID]);
+            $query = $this->db->prepare('SELECT CASE WHEN f.accountLow = :meAccount THEN f.accountHigh ELSE f.accountLow END AS accountID, CASE WHEN f.accountLow = :meNew THEN f.newForLow ELSE f.newForHigh END AS isNew FROM ' . $this->tables->get('core_friendships') . ' f WHERE f.accountLow = :meLow OR f.accountHigh = :meHigh');
+            $query->execute([':meAccount' => $accountID, ':meNew' => $accountID, ':meLow' => $accountID, ':meHigh' => $accountID]);
             $relationshipRows = $query->fetchAll();
             foreach ($relationshipRows as $row) {
                 $states[(int) $row['accountID']] = (int) $row['isNew'];
@@ -214,8 +214,8 @@ final class SocialRepository
 
     public function message(int $accountID, int $messageID): ?array
     {
-        $query = $this->db->prepare('SELECT m.messageID, m.fromAccountID, m.toAccountID, m.subject, m.body, m.isRead, m.createdAt, u.userName, u.userID, u.extID FROM ' . $this->tables->get('core_messages') . ' m LEFT JOIN ' . $this->tables->get('users') . ' u ON u.extID = CAST(CASE WHEN m.fromAccountID = :me THEN m.toAccountID ELSE m.fromAccountID END AS CHAR) WHERE m.messageID = :messageID AND (m.fromAccountID = :me OR m.toAccountID = :me) LIMIT 1');
-        $query->execute([':me' => $accountID, ':messageID' => $messageID]);
+        $query = $this->db->prepare('SELECT m.messageID, m.fromAccountID, m.toAccountID, m.subject, m.body, m.isRead, m.createdAt, u.userName, u.userID, u.extID FROM ' . $this->tables->get('core_messages') . ' m LEFT JOIN ' . $this->tables->get('users') . ' u ON u.extID = CAST(CASE WHEN m.fromAccountID = :meCase THEN m.toAccountID ELSE m.fromAccountID END AS CHAR) WHERE m.messageID = :messageID AND (m.fromAccountID = :meFrom OR m.toAccountID = :meTo) LIMIT 1');
+        $query->execute([':meCase' => $accountID, ':messageID' => $messageID, ':meFrom' => $accountID, ':meTo' => $accountID]);
         $row = $query->fetch();
         if ($row === false) {
             return null;

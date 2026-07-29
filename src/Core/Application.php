@@ -11,6 +11,8 @@ use NightCore\Domain\Content\CommentAccessPolicy;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
 use NightCore\Domain\Levels\LevelAccessPolicy;
+use NightCore\Domain\Levels\LevelLifecycleRepository;
+use NightCore\Domain\Levels\LevelLifecycleService;
 use NightCore\Domain\Levels\LevelRepository;
 use NightCore\Domain\Levels\LevelSearchBridge;
 use NightCore\Domain\Levels\LevelService;
@@ -117,23 +119,23 @@ final class Application
 
     public function levels(): LevelService
     {
-        $defaultStorage = dirname(__DIR__, 2) . '/data/levels';
-        $storagePath = trim(Config::get('LEVEL_STORAGE_PATH', '') ?? '');
-        if ($storagePath === '') {
-            $storagePath = $defaultStorage;
-        }
-
         $authenticator = $this->authenticator();
         return new LevelService(
             $this->levelRepository,
-            new LevelStorage(
-                $storagePath,
-                max(1, Config::getInt('LEVEL_MAX_BYTES', 8388608))
-            ),
+            $this->levelStorage(),
             $this->accountRepository,
             $authenticator,
             new LevelAccessPolicy($this->socialRepository, $authenticator),
             max(0, Config::getInt('LEVEL_UPLOAD_COOLDOWN_SECONDS', 60))
+        );
+    }
+
+    public function levelLifecycle(): LevelLifecycleService
+    {
+        return new LevelLifecycleService(
+            new LevelLifecycleRepository($this->db, $this->tables),
+            $this->levelStorage(),
+            $this->authenticator()
         );
     }
 
@@ -197,6 +199,16 @@ final class Application
     public function profile(): string
     {
         return Config::get('CORE_PROFILE', 'cvolton') ?? 'cvolton';
+    }
+
+    private function levelStorage(): LevelStorage
+    {
+        $defaultStorage = dirname(__DIR__, 2) . '/data/levels';
+        $storagePath = trim(Config::get('LEVEL_STORAGE_PATH', '') ?? '');
+        if ($storagePath === '') {
+            $storagePath = $defaultStorage;
+        }
+        return new LevelStorage($storagePath, max(1, Config::getInt('LEVEL_MAX_BYTES', 8388608)));
     }
 
     /** @return array<int,int> */

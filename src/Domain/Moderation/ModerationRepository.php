@@ -28,7 +28,7 @@ final class ModerationRepository
         $query->execute([':levelID' => $levelID, ':accountID' => $accountID, ':stars' => $stars, ':feature' => $feature, ':createdAt' => time()]);
     }
 
-    public function rate(int $levelID, int $accountID, int $stars, int $feature, int $epic): bool
+    public function rate(int $levelID, int $accountID, int $stars, int $feature, int $epic, int $difficulty, int $auto, int $demon): bool
     {
         $this->db->beginTransaction();
         try {
@@ -39,10 +39,19 @@ final class ModerationRepository
                 $this->db->rollBack();
                 return false;
             }
-            $update = $this->db->prepare('UPDATE ' . $this->tables->get('levels') . ' SET starStars = :stars, starDifficulty = CASE WHEN :stars = 0 THEN 0 ELSE starDifficulty END, starFeatured = :feature, starEpic = :epic, rateDate = :rateDate WHERE levelID = :levelID');
-            $update->execute([':stars' => $stars, ':feature' => $feature, ':epic' => $epic, ':rateDate' => time(), ':levelID' => $levelID]);
-            $log = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_rate_log') . ' (levelID, accountID, stars, feature, epic, demon, demonDifficulty, createdAt) VALUES (:levelID, :accountID, :stars, :feature, :epic, 0, 0, :createdAt)');
-            $log->execute([':levelID' => $levelID, ':accountID' => $accountID, ':stars' => $stars, ':feature' => $feature, ':epic' => $epic, ':createdAt' => time()]);
+            $update = $this->db->prepare('UPDATE ' . $this->tables->get('levels') . ' SET starStars = :stars, starDifficulty = :difficulty, starAuto = :auto, starDemon = :demon, starDemonDiff = CASE WHEN :demon = 1 THEN starDemonDiff ELSE 0 END, starFeatured = :feature, starEpic = :epic, rateDate = :rateDate WHERE levelID = :levelID');
+            $update->execute([
+                ':stars' => $stars,
+                ':difficulty' => $difficulty,
+                ':auto' => $auto,
+                ':demon' => $demon,
+                ':feature' => $feature,
+                ':epic' => $epic,
+                ':rateDate' => time(),
+                ':levelID' => $levelID,
+            ]);
+            $log = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_rate_log') . ' (levelID, accountID, stars, feature, epic, demon, demonDifficulty, createdAt) VALUES (:levelID, :accountID, :stars, :feature, :epic, :demon, 0, :createdAt)');
+            $log->execute([':levelID' => $levelID, ':accountID' => $accountID, ':stars' => $stars, ':feature' => $feature, ':epic' => $epic, ':demon' => $demon, ':createdAt' => time()]);
             $this->recalculateCreatorPoints((int) $userID);
             $this->db->commit();
             return true;
@@ -58,18 +67,16 @@ final class ModerationRepository
     {
         $this->db->beginTransaction();
         try {
-            $find = $this->db->prepare('SELECT userID FROM ' . $this->tables->get('levels') . ' WHERE levelID = :levelID LIMIT 1 FOR UPDATE');
+            $find = $this->db->prepare('SELECT levelID FROM ' . $this->tables->get('levels') . ' WHERE levelID = :levelID LIMIT 1 FOR UPDATE');
             $find->execute([':levelID' => $levelID]);
-            $userID = $find->fetchColumn();
-            if ($userID === false) {
+            if ($find->fetchColumn() === false) {
                 $this->db->rollBack();
                 return false;
             }
-            $update = $this->db->prepare('UPDATE ' . $this->tables->get('levels') . ' SET starDemon = 1, starDemonDiff = :difficulty, starStars = CASE WHEN starStars = 0 THEN 10 ELSE starStars END, rateDate = :rateDate WHERE levelID = :levelID');
-            $update->execute([':difficulty' => $difficulty, ':rateDate' => time(), ':levelID' => $levelID]);
-            $log = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_rate_log') . ' (levelID, accountID, stars, feature, epic, demon, demonDifficulty, createdAt) SELECT levelID, :accountID, starStars, starFeatured, starEpic, 1, :difficulty, :createdAt FROM ' . $this->tables->get('levels') . ' WHERE levelID = :levelID');
+            $update = $this->db->prepare('UPDATE ' . $this->tables->get('levels') . ' SET starDemonDiff = :difficulty WHERE levelID = :levelID');
+            $update->execute([':difficulty' => $difficulty, ':levelID' => $levelID]);
+            $log = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_rate_log') . ' (levelID, accountID, stars, feature, epic, demon, demonDifficulty, createdAt) SELECT levelID, :accountID, starStars, starFeatured, starEpic, starDemon, :difficulty, :createdAt FROM ' . $this->tables->get('levels') . ' WHERE levelID = :levelID');
             $log->execute([':accountID' => $accountID, ':difficulty' => $difficulty, ':createdAt' => time(), ':levelID' => $levelID]);
-            $this->recalculateCreatorPoints((int) $userID);
             $this->db->commit();
             return true;
         } catch (Throwable $e) {

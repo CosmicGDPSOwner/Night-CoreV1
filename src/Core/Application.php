@@ -15,7 +15,6 @@ use NightCore\Domain\Content\CustomSfxStorage;
 use NightCore\Domain\Content\CustomSongIdAllocator;
 use NightCore\Domain\Content\CustomSongService;
 use NightCore\Domain\Content\CustomSongStorage;
-use NightCore\Domain\Content\MediaSettingsRepository;
 use NightCore\Domain\Content\NewgroundsSongProvider;
 use NightCore\Domain\Levels\LevelAccessPolicy;
 use NightCore\Domain\Levels\LevelLifecycleRepository;
@@ -53,7 +52,6 @@ final class Application
     private SocialRepository $socialRepository;
     private ProgressRepository $progressRepository;
     private ModerationRepository $moderationRepository;
-    private MediaSettingsRepository $mediaSettingsRepository;
 
     public function __construct(private PDO $db, private TableNames $tables)
     {
@@ -74,7 +72,6 @@ final class Application
         $this->socialRepository = new SocialRepository($db, $tables);
         $this->progressRepository = new ProgressRepository($db, $tables);
         $this->moderationRepository = new ModerationRepository($db, $tables);
-        $this->mediaSettingsRepository = new MediaSettingsRepository($db, $tables);
     }
 
     public static function boot(): self
@@ -171,9 +168,9 @@ final class Application
         );
     }
 
-    public function mediaSettings(): MediaSettingsRepository
+    public function mediaPolicy(): MediaPolicy
     {
-        return $this->mediaSettingsRepository;
+        return MediaPolicy::load(dirname(__DIR__, 2));
     }
 
     public function customSongs(): CustomSongService
@@ -269,9 +266,7 @@ final class Application
         if ($storagePath === '') {
             $storagePath = $defaultStorage;
         }
-        $fallback = max(1024, Config::getInt('CUSTOM_SONG_MAX_BYTES', 26214400));
-        $maxBytes = $this->mediaSettingsRepository->int(MediaSettingsRepository::SONG_MAX_BYTES, $fallback, 1024);
-        return new CustomSongStorage($storagePath, $maxBytes);
+        return new CustomSongStorage($storagePath, $this->mediaPolicy()->songMaxBytes());
     }
 
     private function customSfxStorage(): CustomSfxStorage
@@ -281,9 +276,7 @@ final class Application
         if ($storagePath === '') {
             $storagePath = $defaultStorage;
         }
-        $fallback = max(1024, Config::getInt('CUSTOM_SFX_MAX_BYTES', 10485760));
-        $maxBytes = $this->mediaSettingsRepository->int(MediaSettingsRepository::SFX_MAX_BYTES, $fallback, 1024);
-        return new CustomSfxStorage($storagePath, $maxBytes);
+        return new CustomSfxStorage($storagePath, $this->mediaPolicy()->sfxMaxBytes());
     }
 
     /** @return array<int,int> */

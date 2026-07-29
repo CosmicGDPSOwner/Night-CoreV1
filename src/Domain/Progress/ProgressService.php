@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace NightCore\Domain\Progress;
 
 use NightCore\Domain\Accounts\AccountRepository;
+use NightCore\Protocol\LevelHash;
 use NightCore\Security\AccountAuthenticator;
 
 final class ProgressService
 {
+    private const LIST_HASH_COMPAT = 'Sa1ntSosetHuiHelloFromGreenCatsServerLOL';
+
     public function __construct(
         private ProgressRepository $progress,
         private AccountRepository $accounts,
         private AccountAuthenticator $authenticator,
+        private ListAudienceResolver $listAudience,
         private int $maxSaveBytes
     ) {
     }
@@ -152,14 +156,17 @@ final class ProgressService
             return '-1';
         }
         $out = [];
+        $hashSource = '';
         foreach ($rows as $row) {
             $ids = $this->idList((string) $row['levelIDs'], 5);
             if (count($ids) !== 5) {
                 continue;
             }
-            $out[] = '1:' . (int) $row['gauntletID'] . ':3:' . $ids[0] . ':4:' . $ids[1] . ':5:' . $ids[2] . ':6:' . $ids[3] . ':7:' . $ids[4];
+            $levels = implode(',', $ids);
+            $out[] = '1:' . (int) $row['gauntletID'] . ':3:' . $levels;
+            $hashSource .= (int) $row['gauntletID'] . $levels;
         }
-        return $out === [] ? '-1' : implode('|', $out);
+        return $out === [] ? '-1' : implode('|', $out) . '#' . LevelHash::solo2($hashSource);
     }
 
     public function mapPacks(int $page): string
@@ -170,6 +177,7 @@ final class ProgressService
             return '-1';
         }
         $rows = [];
+        $hashRows = [];
         foreach ($result['rows'] as $row) {
             $rows[] = '1:' . (int) $row['packID']
                 . ':2:' . $this->field((string) $row['name'], 100)
@@ -179,12 +187,31 @@ final class ProgressService
                 . ':6:' . (int) $row['difficulty']
                 . ':7:' . $this->field((string) $row['color1'], 16)
                 . ':8:' . $this->field((string) $row['color2'], 16);
+            $hashRows[] = [
+                'packID' => (int) $row['packID'],
+                'stars' => (int) $row['stars'],
+                'coins' => (int) $row['coins'],
+            ];
         }
-        return implode('|', $rows) . '#' . $result['total'] . ':' . $page * 10 . ':10';
+        return implode('|', $rows)
+            . '#' . $result['total'] . ':' . $page * 10 . ':10'
+            . '#' . LevelHash::pack($hashRows);
     }
 
-    public function uploadList(int $accountID, string $gjp, string $gjp2, string $ip, int $listID, string $name, string $description, string $levelIDs, int $reward, int $unlisted): string
-    {
+    public function uploadList(
+        int $accountID,
+        string $gjp,
+        string $gjp2,
+        string $ip,
+        int $listID,
+        string $name,
+        string $description,
+        string $levelIDs,
+        int $difficulty,
+        int $listVersion,
+        int $original,
+        int $unlisted
+    ): string {
         if (!$this->auth($accountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
@@ -192,13 +219,24 @@ final class ProgressService
         if ($account === null) {
             return '-1';
         }
-        $name = $this->field($name, 100);
+        $name = $this->field($name === '' ? 'Unnamed list' : $name, 100);
         $levels = $this->idListString($levelIDs, 100);
-        if ($name === '' || $levels === '') {
+        if ($levels === '') {
             return '-1';
         }
         $userID = $this->accounts->ensureUser($accountID, (string) $account['userName']);
-        $saved = $this->progress->saveList($accountID, $userID, max(0, $listID), $name, $this->field($description, 4096), $levels, max(0, $reward), $unlisted === 0 ? 0 : 1);
+        $saved = $this->progress->saveList(
+            $accountID,
+            $userID,
+            max(0, $listID),
+            $name,
+            $this->field($description, 4096),
+            $levels,
+            max(0, $difficulty),
+            max(1, $listVersion),
+            max(0, $original),
+            $unlisted === 0 ? 0 : 1
+        );
         return $saved > 0 ? (string) $saved : '-1';
     }
 
@@ -210,30 +248,68 @@ final class ProgressService
         return $this->progress->deleteList($accountID, $listID) ? '1' : '-1';
     }
 
-    public function lists(int $accountID, string $gjp, string $gjp2, string $ip, string $search, int $page, int $type): string
-    {
+    public function lists(
+        int $accountID,
+        string $gjp,
+        string $gjp2,
+        string $ip,
+        string $search,
+        int $page,
+        int $type,
+        string $followed
+    ): string {
         if ($accountID > 0 && !$this->auth($accountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
+        if ($type === 13 && $accountID <= 0) {
+            return '-1';
+        }
+
+        $ownerIDs = [];
+        if ($type === 12) {
+            $ownerIDs = $this->idList($followed, 1000);
+        } elseif ($type === 13) {
+            $ownerIDs = $this->listAudience->friendAccountIDs($accountID);
+        }
+
         $page = max(0, $page);
-        $result = $this->progress->lists($this->field($search, 100), $page, $type, max(0, $accountID));
+        $result = $this->progress->lists($this->field($search, 100), $page, $type, max(0, $accountID), $ownerIDs);
         if ($result['total'] === 0) {
             return '-1';
         }
         $rows = [];
+        $users = [];
         foreach ($result['rows'] as $row) {
             $rows[] = '1:' . (int) $row['listID']
                 . ':2:' . $this->field((string) $row['listName'], 100)
                 . ':3:' . $this->field((string) $row['listDesc'], 4096)
-                . ':5:' . (int) $row['userID']
-                . ':7:' . (int) $row['downloads']
-                . ':10:' . (int) $row['likes']
-                . ':14:' . (int) $row['reward']
-                . ':19:' . $this->idListString((string) $row['levelIDs'], 100)
-                . ':28:' . date('d-m-Y G-i', (int) $row['createdAt'])
-                . ':29:' . date('d-m-Y G-i', (int) $row['updatedAt']);
+                . ':5:' . (int) $row['listVersion']
+                . ':49:' . (int) $row['accountID']
+                . ':50:' . $this->field((string) ($row['userName'] ?? ''), 20)
+                . ':10:' . (int) $row['downloads']
+                . ':7:' . (int) $row['difficulty']
+                . ':14:' . (int) $row['likes']
+                . ':19:' . (int) $row['starFeatured']
+                . ':51:' . $this->idListString((string) $row['levelIDs'], 100)
+                . ':55:' . (int) $row['starStars']
+                . ':56:' . (int) $row['countForReward']
+                . ':28:' . (int) $row['createdAt']
+                . ':29:' . (int) $row['updatedAt'];
+
+            $userID = (int) $row['userID'];
+            $users[$userID] = '1:' . $this->field((string) ($row['userName'] ?? ''), 20)
+                . ':2:' . $userID
+                . ':9:' . (int) ($row['icon'] ?? 0)
+                . ':10:' . (int) ($row['color1'] ?? 0)
+                . ':11:' . (int) ($row['color2'] ?? 0)
+                . ':14:' . (int) ($row['iconType'] ?? 0)
+                . ':15:' . (int) ($row['special'] ?? 0)
+                . ':16:' . (int) ($row['extID'] ?? $row['accountID']);
         }
-        return implode('|', $rows) . '#' . $result['total'] . ':' . $page * 10 . ':10';
+        return implode('|', $rows)
+            . '#' . implode('|', $users)
+            . '#' . $result['total'] . ':' . $page * 10 . ':10'
+            . '#' . self::LIST_HASH_COMPAT;
     }
 
     public function rotationLevelId(int $slotType, int $slotID): ?int
@@ -254,7 +330,7 @@ final class ProgressService
 
     private function field(string $value, int $max): string
     {
-        $value = str_replace(["\0", '|', '#'], '', trim($value));
+        $value = str_replace(["\0", '|', '#', ':'], '', trim($value));
         return strlen($value) > $max ? substr($value, 0, $max) : $value;
     }
 
@@ -262,7 +338,7 @@ final class ProgressService
     private function idList(string $value, int $max): array
     {
         $ids = [];
-        foreach (preg_split('/[,;\s]+/', $value) ?: [] as $part) {
+        foreach (preg_split('/[:,;\s]+/', $value) ?: [] as $part) {
             if ($part !== '' && ctype_digit($part)) {
                 $id = (int) $part;
                 if ($id > 0) {

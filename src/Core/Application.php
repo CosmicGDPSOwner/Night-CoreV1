@@ -10,6 +10,7 @@ use NightCore\Domain\Accounts\AuthRateLimiter;
 use NightCore\Domain\Content\CommentAccessPolicy;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
+use NightCore\Domain\Content\CustomSongIdAllocator;
 use NightCore\Domain\Content\CustomSongService;
 use NightCore\Domain\Content\CustomSongStorage;
 use NightCore\Domain\Content\NewgroundsSongProvider;
@@ -167,7 +168,13 @@ final class Application
 
     public function customSongs(): CustomSongService
     {
-        return new CustomSongService($this->contentRepository, $this->customSongStorage());
+        $minID = max(1, Config::getInt('CUSTOM_SONG_ID_MIN', 2000000));
+        $maxID = max($minID, Config::getInt('CUSTOM_SONG_ID_MAX', 8999999));
+        return new CustomSongService(
+            $this->contentRepository,
+            $this->customSongStorage(),
+            new CustomSongIdAllocator($this->db, $this->tables, $minID, $maxID)
+        );
     }
 
     public function social(): SocialService

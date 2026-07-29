@@ -11,6 +11,8 @@
 !/storage/logs/.gitkeep
 /storage/cache/*
 !/storage/cache/.gitkeep
+/data/levels/*
+!/data/levels/.gitkeep
 
 # OS / editor
 .DS_Store

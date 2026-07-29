@@ -39,6 +39,7 @@ Night Core V1 is a modified/derived project and preserves the applicable GPLv3 r
 - login rate limiting;
 - optional legacy UDID level ownership migration;
 - automatic Newgrounds custom-song lookup and local caching;
+- owner-managed server-hosted MP3 custom-song library with generated Song IDs;
 - DB-free self-test plus MariaDB integration/baseline CI;
 - PHP 8.1/8.2/8.3 CI checks.
 
@@ -83,11 +84,16 @@ The smoke client checks `/health.php`, `/ready.php` and `/info.php` without crea
 
 See `docs/STAGING.md` for the complete rollout and promotion gate.
 
-## Newgrounds custom songs
+## Custom songs
 
-When an unknown custom `songID` is requested, Night Core can resolve its metadata upstream, validate the Newgrounds/ngfiles download URL, and cache the successful result in `core_songs`. Failed IDs use a temporary negative cache to avoid repeated upstream requests.
+Night Core has two independent custom-song paths:
 
-See `docs/NEWGROUNDS.md` for configuration and diagnostics.
+- external Newgrounds/Boomlings lookup for unknown IDs when the upstream is reachable;
+- a server-hosted local MP3 library managed through the token-protected `/songAdmin.php` uploader.
+
+Local uploads get generated Song IDs in the `90000000..99999999` range and are served by Night Core itself, so they do not depend on external audio services.
+
+See `docs/CUSTOM_SONGS.md` for local uploads and `docs/NEWGROUNDS.md` for external lookup.
 
 ## Safety
 

@@ -8,7 +8,7 @@ use NightCore\Core\Request;
 use NightCore\Core\Response;
 
 try {
-    foreach (['userName', 'secret', 'stars', 'demons', 'icon', 'color1', 'color2'] as $required) {
+    foreach (['userName', 'stars', 'demons', 'icon', 'color1', 'color2'] as $required) {
         if (!array_key_exists($required, $_POST)) {
             Response::gd('-1');
         }

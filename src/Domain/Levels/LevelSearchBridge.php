@@ -14,7 +14,8 @@ final class LevelSearchBridge
         private PDO $db,
         private TableNames $tables,
         private LevelService $levels,
-        private AccountAuthenticator $authenticator
+        private AccountAuthenticator $authenticator,
+        private LevelSongProvider $songs
     ) {
     }
 
@@ -78,7 +79,7 @@ final class LevelSearchBridge
             return $this->delegateIds($input, $ids, $accountID, $gjp, $gjp2, $ip, 0);
         }
 
-        return $this->levels->search($input, $accountID, $gjp, $gjp2, $ip);
+        return $this->songs->decorate($this->levels->search($input, $accountID, $gjp, $gjp2, $ip));
     }
 
     /** @param array<string,string> $input @param array<int,int> $ids */
@@ -91,7 +92,7 @@ final class LevelSearchBridge
             $input['_gauntletID'] = (string) $gauntletID;
             $input['page'] = '0';
         }
-        return $this->levels->search($input, $accountID, $gjp, $gjp2, $ip);
+        return $this->songs->decorate($this->levels->search($input, $accountID, $gjp, $gjp2, $ip));
     }
 
     /** @return array<int,int> */

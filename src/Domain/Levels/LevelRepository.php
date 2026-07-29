@@ -180,7 +180,11 @@ final class LevelRepository
             $params['levelID'] = (int) $criteria['levelID'];
         }
         if (isset($criteria['name'])) {
-            $where[] = 'levels.levelName LIKE :levelName';
+            // Make level-name matching independent of the database/table collation.
+            // This keeps search predictable on imported Cvolton databases that may
+            // use a case-sensitive collation: "Test Level", "test level" and
+            // "TEST LEVEL" all resolve through the same substring search.
+            $where[] = 'LOWER(levels.levelName) LIKE LOWER(:levelName)';
             $params['levelName'] = '%' . $criteria['name'] . '%';
         }
         if (isset($criteria['userID'])) {

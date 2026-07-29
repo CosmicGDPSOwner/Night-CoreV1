@@ -25,13 +25,6 @@ try {
         return $default;
     };
 
-    if ($endpoint === 'getGJLevelLists.php' && (int) Request::post('type') === 0) {
-        $exactList = trim(Request::post('str'));
-        if ($exactList !== '' && ctype_digit($exactList) && (int) $exactList > 0) {
-            $app->trackListDownload((int) $exactList, $ip);
-        }
-    }
-
     $result = match ($endpoint) {
         'getGJSongInfo.php' => $app->content()->song((int) Request::post('songID')),
 
@@ -52,8 +45,11 @@ try {
             (int) Request::post('accountID'), (int) Request::post('page'), 10,
             (int) Request::post('gameVersion'), (int) Request::post('binaryVersion')
         ),
-        'deleteGJComment20.php', 'deleteGJAccComment20.php' => $app->content()->deleteComment(
-            $accountID, $gjp, $gjp2, $ip, (int) Request::post('commentID')
+        'deleteGJComment20.php' => $app->content()->deleteComment(
+            $accountID, $gjp, $gjp2, $ip, (int) Request::post('commentID'), 0
+        ),
+        'deleteGJAccComment20.php' => $app->content()->deleteComment(
+            $accountID, $gjp, $gjp2, $ip, (int) Request::post('commentID'), 1
         ),
         'likeGJItem211.php', 'likeGJItem21.php', 'likeGJItem20.php' => $app->content()->like(
             $accountID, $gjp, $gjp2, $ip,
@@ -161,6 +157,13 @@ try {
         ),
         default => '-1',
     };
+
+    if ($endpoint === 'getGJLevelLists.php' && $result !== '-1' && (int) Request::post('type') === 0) {
+        $exactList = trim(Request::post('str'));
+        if ($exactList !== '' && ctype_digit($exactList) && (int) $exactList > 0) {
+            $app->trackListDownload((int) $exactList, $ip);
+        }
+    }
 
     Response::gd($result);
 } catch (Throwable $e) {

@@ -30,6 +30,7 @@ final class StaffAccessService
                 'roleID' => 0,
                 'roleName' => 'Owner',
                 'priority' => PHP_INT_MAX,
+                'modBadgeLevel' => 2,
                 'badgeText' => 'OWNER',
                 'badgeColor' => '#f59e0b',
                 'commentColor' => '#fbbf24',
@@ -51,6 +52,25 @@ final class StaffAccessService
             return ['*'];
         }
         return $this->repository->permissionsForAccount($accountID);
+    }
+
+    public function nativeBadgeLevel(int $accountID): int
+    {
+        $identity = $this->identity($accountID);
+        return $identity === null ? 0 : max(0, min(2, (int) ($identity['modBadgeLevel'] ?? 0)));
+    }
+
+    public function nativeCommentColor(int $accountID): string
+    {
+        $identity = $this->identity($accountID);
+        if ($identity === null || $this->nativeBadgeLevel($accountID) <= 0) {
+            return '';
+        }
+        $hex = (string) ($identity['commentColor'] ?? '');
+        if (preg_match('/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/', $hex, $match) !== 1) {
+            return '255,255,255';
+        }
+        return hexdec($match[1]) . ',' . hexdec($match[2]) . ',' . hexdec($match[3]);
     }
 
     public function repository(): StaffAccessRepository

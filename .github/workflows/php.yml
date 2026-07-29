@@ -64,6 +64,8 @@ jobs:
           extensions: pdo_mysql
       - name: MariaDB integration
         run: php tests/integration.php
+      - name: Staff RBAC integration
+        run: php tests/staff_rbac.php
       - name: Production installer and doctor
         run: |
           cp .env.example .env
@@ -116,7 +118,7 @@ jobs:
           }
       - name: Tear down staging stack
         if: always()
-        run: STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml down -v
+        run: docker compose -f compose.staging.yml down -v
 
   shared-hosting-apache:
     runs-on: ubuntu-latest

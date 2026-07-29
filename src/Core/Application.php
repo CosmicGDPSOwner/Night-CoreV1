@@ -26,6 +26,8 @@ use NightCore\Domain\Levels\LevelSongProvider;
 use NightCore\Domain\Levels\LevelStorage;
 use NightCore\Domain\Moderation\ModerationRepository;
 use NightCore\Domain\Moderation\ModerationService;
+use NightCore\Domain\Moderation\StaffAccessRepository;
+use NightCore\Domain\Moderation\StaffAccessService;
 use NightCore\Domain\Profiles\ProfileContextRepository;
 use NightCore\Domain\Profiles\ProfileRepository;
 use NightCore\Domain\Profiles\ProfileService;
@@ -52,6 +54,7 @@ final class Application
     private SocialRepository $socialRepository;
     private ProgressRepository $progressRepository;
     private ModerationRepository $moderationRepository;
+    private StaffAccessRepository $staffAccessRepository;
 
     public function __construct(private PDO $db, private TableNames $tables)
     {
@@ -72,6 +75,7 @@ final class Application
         $this->socialRepository = new SocialRepository($db, $tables);
         $this->progressRepository = new ProgressRepository($db, $tables);
         $this->moderationRepository = new ModerationRepository($db, $tables);
+        $this->staffAccessRepository = new StaffAccessRepository($db, $tables);
     }
 
     public static function boot(): self
@@ -105,6 +109,16 @@ final class Application
             Config::getBool('ACCOUNT_PREACTIVATE', true),
             Config::getBool('LEGACY_MIGRATE_UDID_LEVELS', true)
         );
+    }
+
+    public function accountRepository(): AccountRepository
+    {
+        return $this->accountRepository;
+    }
+
+    public function passwordService(): PasswordService
+    {
+        return $this->passwords;
     }
 
     public function authenticator(): AccountAuthenticator
@@ -163,8 +177,9 @@ final class Application
             $this->accountRepository,
             $this->authenticator(),
             $this->progressRepository,
-            new CommentAccessPolicy($this->db, $this->tables, $this->adminAccountIDs()),
-            $this->newgroundsSongs()
+            new CommentAccessPolicy($this->db, $this->tables, $this->adminAccountIDs(), $this->staffAccess()),
+            $this->newgroundsSongs(),
+            $this->staffAccess()
         );
     }
 
@@ -218,12 +233,18 @@ final class Application
         return (new ListDownloadTracker($this->db, $this->tables))->incrementOnce($listID, $ip);
     }
 
+    public function staffAccess(): StaffAccessService
+    {
+        return new StaffAccessService($this->staffAccessRepository, $this->adminAccountIDs());
+    }
+
     public function moderation(): ModerationService
     {
         return new ModerationService(
             $this->moderationRepository,
             $this->authenticator(),
-            $this->adminAccountIDs()
+            $this->adminAccountIDs(),
+            $this->staffAccess()
         );
     }
 

@@ -12,7 +12,8 @@ final class ModerationService
     public function __construct(
         private ModerationRepository $moderation,
         private AccountAuthenticator $authenticator,
-        private array $adminAccountIDs
+        private array $adminAccountIDs,
+        private ?StaffAccessService $staffAccess = null
     ) {
     }
 
@@ -21,7 +22,15 @@ final class ModerationService
         if (!$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
-        $role = $this->role($accountID);
+        if ($this->staffAccess !== null) {
+            $hasAccess = $this->staffAccess->has($accountID, 'levels.suggest')
+                || $this->staffAccess->has($accountID, 'levels.rate')
+                || $this->staffAccess->has($accountID, 'levels.demon');
+            if ($hasAccess) {
+                return (string) max(1, $this->staffAccess->nativeBadgeLevel($accountID));
+            }
+        }
+        $role = $this->legacyRole($accountID);
         if ($role === null || (int) $role['roleLevel'] <= 0) {
             return '-1';
         }
@@ -33,8 +42,12 @@ final class ModerationService
         if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
-        $role = $this->role($accountID);
-        if ($role === null || (int) $role['roleLevel'] <= 0) {
+        $allowed = $this->staffAccess?->has($accountID, 'levels.suggest') ?? false;
+        if (!$allowed) {
+            $role = $this->legacyRole($accountID);
+            $allowed = $role !== null && (int) $role['roleLevel'] > 0;
+        }
+        if (!$allowed) {
             return '-1';
         }
         $this->moderation->suggest($levelID, $accountID, max(0, min(10, $stars)), $feature > 0 ? 1 : 0);
@@ -46,15 +59,23 @@ final class ModerationService
         if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
-        $role = $this->role($accountID);
-        if ($role === null || (int) $role['canRate'] !== 1) {
-            return '-1';
+
+        $canRate = $this->staffAccess?->has($accountID, 'levels.rate') ?? false;
+        $canFeature = $this->staffAccess?->has($accountID, 'levels.feature') ?? false;
+        $canEpic = $this->staffAccess?->has($accountID, 'levels.epic') ?? false;
+        if (!$canRate) {
+            $role = $this->legacyRole($accountID);
+            if ($role === null || (int) $role['canRate'] !== 1) {
+                return '-1';
+            }
+            $canFeature = (int) $role['canFeature'] === 1;
+            $canEpic = (int) $role['canEpic'] === 1;
         }
 
         $stars = max(0, min(10, $stars));
         [$difficulty, $auto, $demon] = $this->difficultyFromStars($stars);
-        $feature = (int) $role['canFeature'] === 1 ? max(0, $feature) : 0;
-        $epic = (int) $role['canEpic'] === 1 ? max(0, min(3, $epic)) : 0;
+        $feature = $canFeature ? max(0, $feature) : 0;
+        $epic = $canEpic ? max(0, min(3, $epic)) : 0;
         return $this->moderation->rate($levelID, $accountID, $stars, $feature, $epic, $difficulty, $auto, $demon) ? '1' : '-1';
     }
 
@@ -63,8 +84,13 @@ final class ModerationService
         if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
-        $role = $this->role($accountID);
-        if ($role === null || (int) $role['canRate'] !== 1) {
+        $allowed = ($this->staffAccess?->has($accountID, 'levels.demon') ?? false)
+            || ($this->staffAccess?->has($accountID, 'levels.rate') ?? false);
+        if (!$allowed) {
+            $role = $this->legacyRole($accountID);
+            $allowed = $role !== null && (int) $role['canRate'] === 1;
+        }
+        if (!$allowed) {
             return '-1';
         }
         $map = [1 => 3, 2 => 4, 3 => 0, 4 => 5, 5 => 6];
@@ -89,7 +115,7 @@ final class ModerationService
         };
     }
 
-    private function role(int $accountID): ?array
+    private function legacyRole(int $accountID): ?array
     {
         if (in_array($accountID, $this->adminAccountIDs, true)) {
             return [

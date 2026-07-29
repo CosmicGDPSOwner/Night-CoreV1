@@ -70,4 +70,9 @@ jobs:
         run: php tests/integration.php
 
       - name: End-to-end universal baseline
-        run: php tests/baseline_http.php
+        run: |
+          php tests/baseline_http.php || {
+            echo '--- baseline HTTP server log ---'
+            cat /tmp/nightcore-baseline-http.log 2>/dev/null || true
+            exit 1
+          }

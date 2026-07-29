@@ -1,0 +1,14 @@
+<?php
+
+declare(strict_types=1);
+
+// Copy this file to config/media.php on the server.
+// config/media.php is intentionally ignored by Git so local owner settings survive updates.
+return [
+    // Public page /mediaAdmin.php accepts uploads without an admin token when enabled.
+    'public_uploads' => false,
+
+    // Per-file limits enforced by Night Core. Infrastructure limits in PHP/Nginx may be lower.
+    'song_max_mib' => 25,
+    'sfx_max_mib' => 10,
+];

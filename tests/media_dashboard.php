@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use NightCore\Core\Application;
 use NightCore\Core\MigrationRunner;
-use NightCore\Domain\Content\MediaSettingsRepository;
 
 $root = dirname(__DIR__);
 require_once $root . '/autoload.php';
@@ -16,12 +15,23 @@ $assert = static function (bool $condition, string $label) use (&$failures): voi
     }
 };
 
+$policyPath = $root . '/config/media.php';
+$policyBackup = is_file($policyPath) ? file_get_contents($policyPath) : null;
+file_put_contents($policyPath, <<<'PHP'
+<?php
+return [
+    'public_uploads' => true,
+    'song_max_mib' => 10,
+    'sfx_max_mib' => 3,
+];
+PHP
+);
+
 $app = Application::boot();
 (new MigrationRunner($app->db(), $app->tables()))->migrate($root . '/migrations');
 $app->customSongs()->storage()->ensure();
 $app->customSfx()->storage()->ensure();
 
-$settingsTable = $app->tables()->get('core_media_settings');
 $sfxTable = $app->tables()->get('core_local_sfx');
 $temp = tempnam(sys_get_temp_dir(), 'nightcore-sfx-');
 if ($temp === false) {
@@ -35,9 +45,9 @@ $pipes = [];
 $log = sys_get_temp_dir() . '/nightcore-custom-sfx-http.log';
 
 try {
-    $app->mediaSettings()->saveUploadLimits(10 * 1048576, 3 * 1048576);
-    $assert($app->customSongs()->storage()->maxBytes() === 10 * 1048576, 'dashboard song limit override');
-    $assert($app->customSfx()->storage()->maxBytes() === 3 * 1048576, 'dashboard SFX limit override');
+    $assert($app->mediaPolicy()->publicUploadsEnabled(), 'public media uploads enabled by local PHP policy');
+    $assert($app->customSongs()->storage()->maxBytes() === 10 * 1048576, 'private PHP song limit override');
+    $assert($app->customSfx()->storage()->maxBytes() === 3 * 1048576, 'private PHP SFX limit override');
 
     $result = $app->customSfx()->import(
         $temp,
@@ -74,6 +84,13 @@ try {
     $assert($ready, 'custom SFX HTTP server readiness');
 
     if ($ready) {
+        $dashboard = @file_get_contents('http://127.0.0.1:8101/mediaAdmin.php');
+        $assert(is_string($dashboard) && str_contains($dashboard, 'Public songs and SFX uploads.'), 'public media dashboard loads without login');
+        $assert(is_string($dashboard) && !str_contains($dashboard, 'Admin token'), 'dashboard has no admin token prompt');
+        $assert(is_string($dashboard) && !str_contains($dashboard, 'save_limits'), 'dashboard has no public limit mutation');
+        $assert(is_string($dashboard) && !str_contains($dashboard, 'delete_song'), 'dashboard has no public song deletion');
+        $assert(is_string($dashboard) && !str_contains($dashboard, 'delete_sfx'), 'dashboard has no public SFX deletion');
+
         $full = @file_get_contents('http://127.0.0.1:8101/downloadCustomSfx.php?sfxID=' . $sfxID);
         $assert($full === $payload, 'full OGG HTTP download');
 
@@ -89,7 +106,7 @@ try {
         $assert($partial === 'OggS', 'ranged OGG HTTP download');
     }
 
-    $assert($app->customSfx()->delete($sfxID), 'custom SFX delete');
+    $assert($app->customSfx()->delete($sfxID), 'custom SFX delete through internal service');
     $assert(!is_file($app->customSfx()->storage()->path($sfxID)), 'custom SFX file delete');
 } catch (Throwable $e) {
     $failures[] = 'exception: ' . $e->getMessage();
@@ -113,15 +130,10 @@ try {
         } catch (Throwable) {
         }
     }
-    try {
-        $cleanupSettings = $app->db()->prepare(
-            'DELETE FROM ' . $settingsTable . ' WHERE settingKey IN (:songKey, :sfxKey)'
-        );
-        $cleanupSettings->execute([
-            ':songKey' => MediaSettingsRepository::SONG_MAX_BYTES,
-            ':sfxKey' => MediaSettingsRepository::SFX_MAX_BYTES,
-        ]);
-    } catch (Throwable) {
+    if ($policyBackup === null) {
+        @unlink($policyPath);
+    } else {
+        file_put_contents($policyPath, $policyBackup);
     }
 }
 

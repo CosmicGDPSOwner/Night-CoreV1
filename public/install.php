@@ -47,11 +47,13 @@ try {
     DeploymentInspector::ensureLevelStorage($root);
     echo 'Level storage: OK' . PHP_EOL;
 
-    $mediaAdminEnabled = trim(Config::get('MEDIA_ADMIN_TOKEN', '') ?? '') !== ''
-        || trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '';
-    if ($mediaAdminEnabled) {
+    $publicMediaUploads = $app->mediaPolicy()->publicUploadsEnabled();
+    $legacySongAdminEnabled = trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '';
+    if ($publicMediaUploads || $legacySongAdminEnabled) {
         DeploymentInspector::ensureCustomSongStorage($root);
         echo 'Custom song storage: OK' . PHP_EOL;
+    }
+    if ($publicMediaUploads) {
         DeploymentInspector::ensureCustomSfxStorage($root);
         echo 'Custom SFX storage: OK' . PHP_EOL;
     }

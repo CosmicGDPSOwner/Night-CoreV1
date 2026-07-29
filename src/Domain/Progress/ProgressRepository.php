@@ -82,8 +82,8 @@ final class ProgressRepository
 
     public function currentRotation(int $slotType, int $now): ?array
     {
-        $query = $this->db->prepare('SELECT slotType, slotID, levelID, startsAt, endsAt FROM ' . $this->tables->get('core_daily_levels') . ' WHERE slotType = :slotType AND startsAt <= :now AND (endsAt = 0 OR endsAt > :now) ORDER BY startsAt DESC, slotID DESC LIMIT 1');
-        $query->execute([':slotType' => $slotType, ':now' => $now]);
+        $query = $this->db->prepare('SELECT slotType, slotID, levelID, startsAt, endsAt FROM ' . $this->tables->get('core_daily_levels') . ' WHERE slotType = :slotType AND startsAt <= :nowStart AND (endsAt = 0 OR endsAt > :nowEnd) ORDER BY startsAt DESC, slotID DESC LIMIT 1');
+        $query->execute([':slotType' => $slotType, ':nowStart' => $now, ':nowEnd' => $now]);
         $row = $query->fetch();
         return $row === false ? null : $row;
     }

@@ -125,7 +125,7 @@ final class SocialService
                 . ':14:' . (int) $user['iconType']
                 . ':15:' . (int) $user['special']
                 . ':16:' . (int) $user['extID']
-                . ':18:0:41:0';
+                . ':18:0:41:' . (int) ($user['isNew'] ?? 0);
         }
         return implode('|', $rows);
     }
@@ -217,7 +217,7 @@ final class SocialService
 
     private function field(string $value, int $max): string
     {
-        $value = str_replace(["\0", '|'], '', trim($value));
+        $value = str_replace(["\0", '|', ':', '#'], '', trim($value));
         return strlen($value) > $max ? substr($value, 0, $max) : $value;
     }
 }

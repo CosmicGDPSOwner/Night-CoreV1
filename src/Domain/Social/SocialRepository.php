@@ -56,7 +56,7 @@ final class SocialRepository
         $count = $this->db->prepare('SELECT COUNT(*) FROM ' . $this->tables->get('core_friend_requests') . ' r WHERE ' . $where);
         $count->execute([':accountID' => $accountID]);
         $total = (int) $count->fetchColumn();
-        $query = $this->db->prepare('SELECT r.requestID, r.fromAccountID, r.toAccountID, r.message, r.isRead, r.createdAt, u.userName, u.userID, u.icon, u.color1, u.color2, u.iconType, u.special, u.extID FROM ' . $this->tables->get('core_friend_requests') . ' r LEFT JOIN ' . $this->tables->get('users') . ' u ON u.extID = CAST(' . $other . ' AS CHAR) WHERE ' . $where . ' ORDER BY r.createdAt DESC LIMIT 10 OFFSET ' . $offset);
+        $query = $this->db->prepare('SELECT r.requestID, r.fromAccountID, r.toAccountID, r.message, r.isRead, r.createdAt, u.userName, u.userID, u.icon, u.color1, u.color2, u.iconType, u.special, u.extID FROM ' . $this->tables->get('core_friend_requests') . ' r LEFT JOIN ' . $this->tables->get('users') . ' u ON CAST(u.extID AS UNSIGNED) = ' . $other . ' WHERE ' . $where . ' ORDER BY r.createdAt DESC LIMIT 10 OFFSET ' . $offset);
         $query->execute([':accountID' => $accountID]);
         return ['rows' => $query->fetchAll(), 'total' => $total];
     }
@@ -207,14 +207,14 @@ final class SocialRepository
         $count = $this->db->prepare('SELECT COUNT(*) FROM ' . $this->tables->get('core_messages') . ' m WHERE ' . $where);
         $count->execute([':me' => $accountID]);
         $total = (int) $count->fetchColumn();
-        $query = $this->db->prepare('SELECT m.messageID, m.fromAccountID, m.toAccountID, m.subject, m.isRead, m.createdAt, u.userName, u.userID, u.extID FROM ' . $this->tables->get('core_messages') . ' m LEFT JOIN ' . $this->tables->get('users') . ' u ON u.extID = CAST(' . $other . ' AS CHAR) WHERE ' . $where . ' ORDER BY m.messageID DESC LIMIT 10 OFFSET ' . $offset);
+        $query = $this->db->prepare('SELECT m.messageID, m.fromAccountID, m.toAccountID, m.subject, m.isRead, m.createdAt, u.userName, u.userID, u.extID FROM ' . $this->tables->get('core_messages') . ' m LEFT JOIN ' . $this->tables->get('users') . ' u ON CAST(u.extID AS UNSIGNED) = ' . $other . ' WHERE ' . $where . ' ORDER BY m.messageID DESC LIMIT 10 OFFSET ' . $offset);
         $query->execute([':me' => $accountID]);
         return ['rows' => $query->fetchAll(), 'total' => $total];
     }
 
     public function message(int $accountID, int $messageID): ?array
     {
-        $query = $this->db->prepare('SELECT m.messageID, m.fromAccountID, m.toAccountID, m.subject, m.body, m.isRead, m.createdAt, u.userName, u.userID, u.extID FROM ' . $this->tables->get('core_messages') . ' m LEFT JOIN ' . $this->tables->get('users') . ' u ON u.extID = CAST(CASE WHEN m.fromAccountID = :meCase THEN m.toAccountID ELSE m.fromAccountID END AS CHAR) WHERE m.messageID = :messageID AND (m.fromAccountID = :meFrom OR m.toAccountID = :meTo) LIMIT 1');
+        $query = $this->db->prepare('SELECT m.messageID, m.fromAccountID, m.toAccountID, m.subject, m.body, m.isRead, m.createdAt, u.userName, u.userID, u.extID FROM ' . $this->tables->get('core_messages') . ' m LEFT JOIN ' . $this->tables->get('users') . ' u ON CAST(u.extID AS UNSIGNED) = CASE WHEN m.fromAccountID = :meCase THEN m.toAccountID ELSE m.fromAccountID END WHERE m.messageID = :messageID AND (m.fromAccountID = :meFrom OR m.toAccountID = :meTo) LIMIT 1');
         $query->execute([':meCase' => $accountID, ':messageID' => $messageID, ':meFrom' => $accountID, ':meTo' => $accountID]);
         $row = $query->fetch();
         if ($row === false) {

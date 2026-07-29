@@ -13,6 +13,7 @@ use NightCore\Domain\Levels\LevelAccessPolicy;
 use NightCore\Domain\Levels\LevelRepository;
 use NightCore\Domain\Levels\LevelSearchBridge;
 use NightCore\Domain\Levels\LevelService;
+use NightCore\Domain\Levels\LevelSongProvider;
 use NightCore\Domain\Levels\LevelStorage;
 use NightCore\Domain\Moderation\ModerationRepository;
 use NightCore\Domain\Moderation\ModerationService;
@@ -137,7 +138,13 @@ final class Application
 
     public function levelSearch(): LevelSearchBridge
     {
-        return new LevelSearchBridge($this->db, $this->tables, $this->levels(), $this->authenticator());
+        return new LevelSearchBridge(
+            $this->db,
+            $this->tables,
+            $this->levels(),
+            $this->authenticator(),
+            new LevelSongProvider($this->db, $this->tables)
+        );
     }
 
     public function content(): ContentService

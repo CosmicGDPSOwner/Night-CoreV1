@@ -117,3 +117,68 @@ jobs:
       - name: Tear down staging stack
         if: always()
         run: STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml down -v
+
+  shared-hosting-apache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: shared_test
+          MARIADB_USER: shared_user
+          MARIADB_PASSWORD: shared_password
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build shared-hosting Apache test image
+        run: |
+          cat > /tmp/nightcore-shared.Dockerfile <<'EOF'
+          FROM php:8.3-apache
+          RUN docker-php-ext-install pdo_mysql \
+              && a2enmod rewrite \
+              && sed -ri 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
+          WORKDIR /var/www/html
+          COPY . /var/www/html
+          EOF
+          docker build -f /tmp/nightcore-shared.Dockerfile -t nightcore-shared-test .
+      - name: Start shared-hosting layout
+        run: |
+          docker run -d --name nightcore-shared --network host \
+            -e APP_ENV=staging \
+            -e APP_DEBUG=0 \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=3306 \
+            -e DB_NAME=shared_test \
+            -e DB_USER=shared_user \
+            -e DB_PASS=shared_password \
+            -e DB_CHARSET=utf8mb4 \
+            -e LEVEL_STORAGE_PATH= \
+            -e WEB_INSTALL_TOKEN=shared-ci-token \
+            nightcore-shared-test
+          sleep 2
+      - name: Run token-gated browser installer
+        run: |
+          curl --fail --silent --show-error \
+            --data-urlencode 'token=shared-ci-token' \
+            http://127.0.0.1/install.php | tee /tmp/nightcore-install.txt
+          grep -q 'Installation checks: OK' /tmp/nightcore-install.txt
+      - name: Verify public endpoints and private-root guard
+        run: |
+          php bin/nightcore-smoke http://127.0.0.1
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/bootstrap.php)" = "404"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/src/Core/Application.php)" = "404"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/migrations/0001_core.sql)" = "404"
+      - name: Shared-hosting logs
+        if: failure()
+        run: docker logs nightcore-shared || true
+      - name: Tear down shared-hosting test
+        if: always()
+        run: docker rm -f nightcore-shared 2>/dev/null || true

@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+
 namespace NightCore\Core;
 
 use RuntimeException;
@@ -66,6 +67,27 @@ final class DeploymentInspector
             true
         );
 
+        $songStorage = self::customSongStoragePath($root);
+        $songAdminEnabled = trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '';
+        $localSongCount = 0;
+        if ($app->schema()->tableExists('core_local_songs')) {
+            try {
+                $localSongCount = (int) $app->db()->query('SELECT COUNT(*) FROM ' . $app->tables()->get('core_local_songs'))->fetchColumn();
+            } catch (\Throwable) {
+                $localSongCount = 0;
+            }
+        }
+        $songStorageRequired = $songAdminEnabled || $localSongCount > 0;
+        $songStorageOk = !$songStorageRequired || (is_dir($songStorage) && is_readable($songStorage) && (!$songAdminEnabled || is_writable($songStorage)));
+        if (!$songStorageRequired) {
+            $songStorageDetail = 'disabled; ' . $songStorage;
+        } elseif ($songStorageOk) {
+            $songStorageDetail = $songStorage . ($songAdminEnabled ? ' (writable)' : ' (readable)');
+        } else {
+            $songStorageDetail = $songStorage . ' (missing or insufficient permissions)';
+        }
+        $checks[] = self::check('custom_song_storage', 'Custom song storage', $songStorageOk, $songStorageDetail, $songStorageRequired);
+
         $appEnv = strtolower(trim(Config::get('APP_ENV', 'development') ?? 'development'));
         $debugEnabled = Config::getBool('APP_DEBUG', false);
         $checks[] = self::check(
@@ -107,6 +129,15 @@ final class DeploymentInspector
         return rtrim($root, '/\\') . '/data/levels';
     }
 
+    public static function customSongStoragePath(string $root): string
+    {
+        $configured = trim(Config::get('CUSTOM_SONG_STORAGE_PATH', '') ?? '');
+        if ($configured !== '') {
+            return rtrim($configured, '/\\');
+        }
+        return rtrim($root, '/\\') . '/data/songs';
+    }
+
     public static function ensureLevelStorage(string $root): string
     {
         $path = self::levelStoragePath($root);
@@ -115,6 +146,18 @@ final class DeploymentInspector
         }
         if (!is_writable($path)) {
             throw new RuntimeException('Level storage directory is not writable.');
+        }
+        return $path;
+    }
+
+    public static function ensureCustomSongStorage(string $root): string
+    {
+        $path = self::customSongStoragePath($root);
+        if (!is_dir($path) && !mkdir($path, 0775, true) && !is_dir($path)) {
+            throw new RuntimeException('Unable to create custom song storage directory.');
+        }
+        if (!is_writable($path)) {
+            throw new RuntimeException('Custom song storage directory is not writable.');
         }
         return $path;
     }

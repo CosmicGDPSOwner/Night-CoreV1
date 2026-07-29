@@ -99,14 +99,20 @@ CREATE TABLE IF NOT EXISTS `{{prefix}}core_level_lists` (
     `userID` INT UNSIGNED NOT NULL,
     `listName` VARCHAR(100) NOT NULL DEFAULT '',
     `listDesc` TEXT NOT NULL,
+    `listVersion` INT NOT NULL DEFAULT 1,
     `levelIDs` TEXT NOT NULL,
+    `difficulty` INT NOT NULL DEFAULT 0,
+    `original` BIGINT NOT NULL DEFAULT 0,
     `downloads` BIGINT NOT NULL DEFAULT 0,
     `likes` BIGINT NOT NULL DEFAULT 0,
-    `reward` INT NOT NULL DEFAULT 0,
+    `starFeatured` INT NOT NULL DEFAULT 0,
+    `starStars` INT NOT NULL DEFAULT 0,
+    `countForReward` INT NOT NULL DEFAULT 0,
     `unlisted` TINYINT NOT NULL DEFAULT 0,
     `createdAt` BIGINT NOT NULL DEFAULT 0,
     `updatedAt` BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (`listID`),
     KEY `idx_core_level_lists_owner` (`accountID`, `updatedAt`),
-    KEY `idx_core_level_lists_likes` (`likes`)
+    KEY `idx_core_level_lists_likes` (`likes`),
+    KEY `idx_core_level_lists_downloads` (`downloads`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

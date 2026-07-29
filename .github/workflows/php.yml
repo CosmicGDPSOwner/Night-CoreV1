@@ -61,8 +61,8 @@ jobs:
           extensions: pdo_mysql
       - name: MariaDB integration
         run: php tests/integration.php
-      - name: Production doctor
+      - name: Production installer and doctor
         run: |
-          mkdir -p /tmp/nightcore-levels
-          php bin/nightcore migrate
+          cp .env.example .env
+          php bin/nightcore install
           php bin/nightcore doctor

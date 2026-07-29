@@ -82,8 +82,10 @@ final class SocialRepository
                 return false;
             }
             [$low, $high] = $this->pair($accountID, $otherAccountID);
-            $add = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_friendships') . ' (accountLow, accountHigh, createdAt) VALUES (:low, :high, :createdAt) ON DUPLICATE KEY UPDATE createdAt = createdAt');
-            $add->execute([':low' => $low, ':high' => $high, ':createdAt' => time()]);
+            $newForLow = $low === $otherAccountID ? 1 : 0;
+            $newForHigh = $high === $otherAccountID ? 1 : 0;
+            $add = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_friendships') . ' (accountLow, accountHigh, newForLow, newForHigh, createdAt) VALUES (:low, :high, :newForLow, :newForHigh, :createdAt) ON DUPLICATE KEY UPDATE newForLow = GREATEST(newForLow, VALUES(newForLow)), newForHigh = GREATEST(newForHigh, VALUES(newForHigh))');
+            $add->execute([':low' => $low, ':high' => $high, ':newForLow' => $newForLow, ':newForHigh' => $newForHigh, ':createdAt' => time()]);
             $delete = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_friend_requests') . ' WHERE (fromAccountID = :me AND toAccountID = :other) OR (fromAccountID = :other AND toAccountID = :me)');
             $delete->execute([':me' => $accountID, ':other' => $otherAccountID]);
             $this->db->commit();
@@ -145,23 +147,45 @@ final class SocialRepository
     /** @return array<int,array<string,mixed>> */
     public function userList(int $accountID, int $type): array
     {
+        $states = [];
         if ($type === 0) {
-            $query = $this->db->prepare('SELECT CASE WHEN f.accountLow = :me THEN f.accountHigh ELSE f.accountLow END AS accountID FROM ' . $this->tables->get('core_friendships') . ' f WHERE f.accountLow = :me OR f.accountHigh = :me');
+            $query = $this->db->prepare('SELECT CASE WHEN f.accountLow = :me THEN f.accountHigh ELSE f.accountLow END AS accountID, CASE WHEN f.accountLow = :me THEN f.newForLow ELSE f.newForHigh END AS isNew FROM ' . $this->tables->get('core_friendships') . ' f WHERE f.accountLow = :me OR f.accountHigh = :me');
             $query->execute([':me' => $accountID]);
+            $relationshipRows = $query->fetchAll();
+            foreach ($relationshipRows as $row) {
+                $states[(int) $row['accountID']] = (int) $row['isNew'];
+            }
         } elseif ($type === 1) {
-            $query = $this->db->prepare('SELECT blockedAccountID AS accountID FROM ' . $this->tables->get('core_blocks') . ' WHERE ownerAccountID = :me');
+            $query = $this->db->prepare('SELECT blockedAccountID AS accountID, 0 AS isNew FROM ' . $this->tables->get('core_blocks') . ' WHERE ownerAccountID = :me');
             $query->execute([':me' => $accountID]);
+            $relationshipRows = $query->fetchAll();
+            foreach ($relationshipRows as $row) {
+                $states[(int) $row['accountID']] = 0;
+            }
         } else {
             return [];
         }
-        $ids = array_map('intval', array_column($query->fetchAll(), 'accountID'));
+
+        $ids = array_keys($states);
         if ($ids === []) {
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $users = $this->db->prepare('SELECT userName, userID, icon, color1, color2, iconType, special, extID FROM ' . $this->tables->get('users') . ' WHERE CAST(extID AS UNSIGNED) IN (' . $placeholders . ') ORDER BY userName ASC');
         $users->execute($ids);
-        return $users->fetchAll();
+        $rows = $users->fetchAll();
+        foreach ($rows as &$row) {
+            $row['isNew'] = $states[(int) $row['extID']] ?? 0;
+        }
+        unset($row);
+
+        if ($type === 0) {
+            $clearLow = $this->db->prepare('UPDATE ' . $this->tables->get('core_friendships') . ' SET newForLow = 0 WHERE accountLow = :me');
+            $clearLow->execute([':me' => $accountID]);
+            $clearHigh = $this->db->prepare('UPDATE ' . $this->tables->get('core_friendships') . ' SET newForHigh = 0 WHERE accountHigh = :me');
+            $clearHigh->execute([':me' => $accountID]);
+        }
+        return $rows;
     }
 
     public function sendMessage(int $from, int $to, string $subject, string $body): bool

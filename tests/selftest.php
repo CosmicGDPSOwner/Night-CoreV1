@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use NightCore\Core\TableNames;
+use NightCore\Domain\Content\NewgroundsSongParser;
 use NightCore\Protocol\LevelHash;
 use NightCore\Protocol\XorCipher;
 use NightCore\Security\PasswordService;
@@ -52,6 +53,26 @@ if (LevelHash::solo2('1,5,0,123,1,0,0,0') !== '0b35d193384c953d1ff985cfe31991326
 $tables = new TableNames('demo_');
 if ($tables->raw('accounts') !== 'demo_accounts') {
     $failures[] = 'table prefix';
+}
+
+$songParser = new NewgroundsSongParser();
+$boomlings = $songParser->parseBoomlings(
+    '1~|~576668~|~2~|~Stereo Madness Remix~|~3~|~1234~|~4~|~Test Artist~|~5~|~7.25~|~6~|~~|~10~|~https%3A%2F%2Faudio.ngfiles.com%2F576000%2F576668_test.mp3~|~7~|~~|~8~|~1',
+    576668
+);
+if ($boomlings === null || $boomlings['songID'] !== 576668 || $boomlings['authorName'] !== 'Test Artist' || $boomlings['download'] !== 'https://audio.ngfiles.com/576000/576668_test.mp3') {
+    $failures[] = 'Boomlings song parsing';
+}
+
+$newgroundsHtml = <<<'HTML'
+<html><head><title>Test &amp; Song - Newgrounds.com</title></head><body>
+<script>window.test={"url":"https:\/\/audio.ngfiles.com\/123000\/123456_Test-Song.mp3?f123","artist":"ExampleArtist"};</script>
+<div>File Info Song 6.9 MB 3 min 2 sec</div>
+</body></html>
+HTML;
+$newgrounds = $songParser->parseNewgroundsPage($newgroundsHtml, 123456);
+if ($newgrounds === null || $newgrounds['name'] !== 'Test & Song' || $newgrounds['authorName'] !== 'ExampleArtist' || $newgrounds['size'] !== '6.90') {
+    $failures[] = 'Newgrounds page parsing';
 }
 
 if ($failures !== []) {

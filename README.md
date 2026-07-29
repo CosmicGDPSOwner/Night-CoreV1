@@ -1,5 +1,7 @@
 # Night Core V1
 
+**English** | [Русский](README.ru.md)
+
 Night Core V1 is a **universal Geometry Dash private-server core** developed for NightGDPS but designed so other GDPS installations can configure and use the same shared core.
 
 It keeps Geometry Dash/Cvolton compatibility at the protocol boundary while moving server behavior into smaller reusable modules.
@@ -36,6 +38,7 @@ Night Core V1 is a modified/derived project and preserves the applicable GPLv3 r
 - shared legacy GJP/GJP2 authenticator;
 - login rate limiting;
 - optional legacy UDID level ownership migration;
+- automatic Newgrounds custom-song lookup and local caching;
 - DB-free self-test plus MariaDB integration/baseline CI;
 - PHP 8.1/8.2/8.3 CI checks.
 
@@ -76,14 +79,20 @@ Before production, deploy the exact candidate revision with `.env.staging.exampl
 php bin/nightcore-smoke https://staging-api.example.com
 ```
 
-The smoke client checks `/health.php`, `/ready.php` and `/info.php` without creating game data. After that passes through Cloudflare, validate the full flow with a real Geometry Dash 2.2 client.
+The smoke client checks `/health.php`, `/ready.php` and `/info.php` without creating game data. After that passes, validate the full flow with a real Geometry Dash 2.2 client.
 
 See `docs/STAGING.md` for the complete rollout and promotion gate.
+
+## Newgrounds custom songs
+
+When an unknown custom `songID` is requested, Night Core can resolve its metadata upstream, validate the Newgrounds/ngfiles download URL, and cache the successful result in `core_songs`. Failed IDs use a temporary negative cache to avoid repeated upstream requests.
+
+See `docs/NEWGROUNDS.md` for configuration and diagnostics.
 
 ## Safety
 
 Do **not** point an untested build at a production GDPS database. Test against a fresh database or a disposable copy first.
 
-## Next milestone
+## Documentation languages
 
-Deploy Night Core V1 to a staging host, put Cloudflare in front of it, and validate the full protocol flow with a real Geometry Dash 2.2 client before production traffic is switched over.
+English documentation lives in `README.md` and `docs/`. Russian documentation is maintained in `README.ru.md` and `docs/ru/`.

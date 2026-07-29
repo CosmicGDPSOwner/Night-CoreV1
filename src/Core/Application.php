@@ -10,6 +10,7 @@ use NightCore\Domain\Accounts\AuthRateLimiter;
 use NightCore\Domain\Content\CommentAccessPolicy;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
+use NightCore\Domain\Content\NewgroundsSongProvider;
 use NightCore\Domain\Levels\LevelAccessPolicy;
 use NightCore\Domain\Levels\LevelLifecycleRepository;
 use NightCore\Domain\Levels\LevelLifecycleService;
@@ -146,7 +147,7 @@ final class Application
             $this->tables,
             $this->levels(),
             $this->authenticator(),
-            new LevelSongProvider($this->db, $this->tables)
+            new LevelSongProvider($this->db, $this->tables, $this->newgroundsSongs())
         );
     }
 
@@ -157,7 +158,8 @@ final class Application
             $this->accountRepository,
             $this->authenticator(),
             $this->progressRepository,
-            new CommentAccessPolicy($this->db, $this->tables, $this->adminAccountIDs())
+            new CommentAccessPolicy($this->db, $this->tables, $this->adminAccountIDs()),
+            $this->newgroundsSongs()
         );
     }
 
@@ -199,6 +201,18 @@ final class Application
     public function profile(): string
     {
         return Config::get('CORE_PROFILE', 'cvolton') ?? 'cvolton';
+    }
+
+    private function newgroundsSongs(): NewgroundsSongProvider
+    {
+        return new NewgroundsSongProvider(
+            $this->contentRepository,
+            Config::getBool('NEWGROUNDS_FETCH_ENABLED', true),
+            Config::getBool('NEWGROUNDS_USE_BOOMLINGS_METADATA', true),
+            Config::getBool('NEWGROUNDS_DIRECT_FALLBACK', true),
+            Config::getInt('NEWGROUNDS_TIMEOUT_SECONDS', 5),
+            Config::getInt('NEWGROUNDS_NEGATIVE_TTL_SECONDS', 3600)
+        );
     }
 
     private function levelStorage(): LevelStorage

@@ -15,7 +15,8 @@ final class ContentService
         private AccountRepository $accounts,
         private AccountAuthenticator $authenticator,
         private ProgressRepository $progress,
-        private CommentAccessPolicy $commentAccess
+        private CommentAccessPolicy $commentAccess,
+        private NewgroundsSongProvider $songProvider
     ) {
     }
 
@@ -25,6 +26,9 @@ final class ContentService
             return '-1';
         }
         $song = $this->content->findSong($songID);
+        if ($song === null) {
+            $song = $this->songProvider->findOrFetch($songID);
+        }
         if ($song === null) {
             return '-1';
         }

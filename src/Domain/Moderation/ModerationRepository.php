@@ -39,12 +39,13 @@ final class ModerationRepository
                 $this->db->rollBack();
                 return false;
             }
-            $update = $this->db->prepare('UPDATE ' . $this->tables->get('levels') . ' SET starStars = :stars, starDifficulty = :difficulty, starAuto = :auto, starDemon = :demon, starDemonDiff = CASE WHEN :demon = 1 THEN starDemonDiff ELSE 0 END, starFeatured = :feature, starEpic = :epic, rateDate = :rateDate WHERE levelID = :levelID');
+            $update = $this->db->prepare('UPDATE ' . $this->tables->get('levels') . ' SET starStars = :stars, starDifficulty = :difficulty, starAuto = :auto, starDemon = :demonValue, starDemonDiff = CASE WHEN :demonCheck = 1 THEN starDemonDiff ELSE 0 END, starFeatured = :feature, starEpic = :epic, rateDate = :rateDate WHERE levelID = :levelID');
             $update->execute([
                 ':stars' => $stars,
                 ':difficulty' => $difficulty,
                 ':auto' => $auto,
-                ':demon' => $demon,
+                ':demonValue' => $demon,
+                ':demonCheck' => $demon,
                 ':feature' => $feature,
                 ':epic' => $epic,
                 ':rateDate' => time(),
@@ -89,7 +90,7 @@ final class ModerationRepository
 
     private function recalculateCreatorPoints(int $userID): void
     {
-        $query = $this->db->prepare('SELECT COALESCE(SUM(CASE WHEN starStars > 0 THEN 1 + CASE WHEN starFeatured > 0 THEN 1 ELSE 0 END + CASE WHEN starEpic > 0 THEN 1 ELSE 0 END ELSE 0 END), 0) FROM ' . $this->tables->get('levels') . ' WHERE userID = :userID');
+        $query = $this->db->prepare('SELECT COALESCE(SUM(CASE WHEN starStars > 0 THEN 1 + CASE WHEN starFeatured > 0 THEN 1 ELSE 0 END + LEAST(3, GREATEST(0, starEpic)) ELSE 0 END), 0) FROM ' . $this->tables->get('levels') . ' WHERE userID = :userID');
         $query->execute([':userID' => $userID]);
         $points = (int) $query->fetchColumn();
         $update = $this->db->prepare('UPDATE ' . $this->tables->get('users') . ' SET creatorPoints = :points WHERE userID = :userID');

@@ -17,7 +17,10 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: pdo
       - name: PHP syntax
-        run: find . -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: |
+          find . -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l bin/nightcore
+          php -l bin/nightcore-smoke
       - name: Core self-test
         run: php bin/nightcore self-test
       - name: CLI help without database
@@ -66,3 +69,14 @@ jobs:
           cp .env.example .env
           php bin/nightcore install
           php bin/nightcore doctor
+      - name: Staging operational smoke
+        run: |
+          php -S 127.0.0.1:8099 -t public >/tmp/nightcore-staging-smoke.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          php bin/nightcore-smoke http://127.0.0.1:8099 || {
+            echo '--- staging smoke HTTP server log ---'
+            cat /tmp/nightcore-staging-smoke.log 2>/dev/null || true
+            exit 1
+          }

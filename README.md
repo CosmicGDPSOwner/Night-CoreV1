@@ -68,10 +68,22 @@ Before accepting traffic, `php bin/nightcore doctor` must have no critical failu
 
 See `docs/DEPLOYMENT.md` for the deployment and update procedure.
 
+## Staging rollout
+
+Before production, deploy the exact candidate revision with `.env.staging.example` against a separate database and storage directory. Once the staging host is reachable, run:
+
+```bash
+php bin/nightcore-smoke https://staging-api.example.com
+```
+
+The smoke client checks `/health.php`, `/ready.php` and `/info.php` without creating game data. After that passes through Cloudflare, validate the full flow with a real Geometry Dash 2.2 client.
+
+See `docs/STAGING.md` for the complete rollout and promotion gate.
+
 ## Safety
 
 Do **not** point an untested build at a production GDPS database. Test against a fresh database or a disposable copy first.
 
 ## Next milestone
 
-Deploy Night Core V1 to a staging host and validate the full protocol flow with a real Geometry Dash 2.2 client before production traffic is switched over.
+Deploy Night Core V1 to a staging host, put Cloudflare in front of it, and validate the full protocol flow with a real Geometry Dash 2.2 client before production traffic is switched over.

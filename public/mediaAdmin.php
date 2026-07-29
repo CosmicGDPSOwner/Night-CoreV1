@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 use NightCore\Core\Application;
 use NightCore\Core\Config;
+use NightCore\Core\PublicMediaUploadGuard;
 
 $root = dirname(__DIR__);
 /** @var Application $app */
 $app = require $root . '/bootstrap.php';
 $policy = $app->mediaPolicy();
 $publicUploads = $policy->publicUploadsEnabled();
+$guard = new PublicMediaUploadGuard($app->db(), $app->tables(), $policy);
 
 $isHttps = !empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off';
 session_name('nightcore_media_public');
@@ -57,6 +59,17 @@ $uploadError = static function (array $file, string $label): void {
     throw new RuntimeException($messages[$code] ?? 'Unknown file upload error.');
 };
 
+$clientIp = static function (): string {
+    if (Config::getBool('TRUST_PROXY_HEADERS', false)) {
+        $forwarded = trim(explode(',', (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''))[0] ?? '');
+        if ($forwarded !== '' && filter_var($forwarded, FILTER_VALIDATE_IP) !== false) {
+            return $forwarded;
+        }
+    }
+    $remote = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    return filter_var($remote, FILTER_VALIDATE_IP) !== false ? $remote : 'unknown';
+};
+
 $publicBaseUrl = static function (string $configKey, string $fallbackKey = ''): string {
     $baseUrl = trim(Config::get($configKey, '') ?? '');
     if ($baseUrl === '' && $fallbackKey !== '') {
@@ -91,6 +104,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             throw new RuntimeException('Public media uploads are disabled.');
         }
         $requireCsrf();
+
         if ($action === 'upload_song') {
             if (!isset($_FILES['song']) || !is_array($_FILES['song'])) {
                 throw new RuntimeException('Choose an MP3 file.');
@@ -102,9 +116,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if ($tmpName === '' || !is_uploaded_file($tmpName)) {
                 throw new RuntimeException('The uploaded MP3 was not received as a valid HTTP upload.');
             }
+            $bytes = filesize($tmpName);
+            if ($bytes === false || $bytes <= 0) {
+                throw new RuntimeException('The uploaded MP3 is empty.');
+            }
+            $songService = $app->customSongs();
+            $guard->reserve($clientIp(), $songService->storage()->directory(), $bytes);
             $name = isset($_POST['name']) && is_string($_POST['name']) ? $_POST['name'] : '';
             $author = isset($_POST['author']) && is_string($_POST['author']) ? $_POST['author'] : '';
-            $result = $app->customSongs()->import(
+            $result = $songService->import(
                 $tmpName,
                 $originalName,
                 $name,
@@ -123,8 +143,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if ($tmpName === '' || !is_uploaded_file($tmpName)) {
                 throw new RuntimeException('The uploaded OGG was not received as a valid HTTP upload.');
             }
+            $bytes = filesize($tmpName);
+            if ($bytes === false || $bytes <= 0) {
+                throw new RuntimeException('The uploaded OGG is empty.');
+            }
+            $sfxService = $app->customSfx();
+            $guard->reserve($clientIp(), $sfxService->storage()->directory(), $bytes);
             $name = isset($_POST['name']) && is_string($_POST['name']) ? $_POST['name'] : '';
-            $result = $app->customSfx()->import(
+            $result = $sfxService->import(
                 $tmpName,
                 $originalName,
                 $name,
@@ -141,6 +167,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
 $songLimitMiB = max(1, (int) floor($app->customSongs()->storage()->maxBytes() / 1048576));
 $sfxLimitMiB = max(1, (int) floor($app->customSfx()->storage()->maxBytes() / 1048576));
+$minimumFreeMiB = max(1, (int) floor($policy->minimumFreeBytes() / 1048576));
 $songs = $app->customSongs()->list(100);
 $sfxRows = $app->customSfx()->list(100);
 $csrfValue = $csrf();
@@ -168,6 +195,11 @@ header('Content-Type: text/html; charset=utf-8');
 <p class="muted">Limits are read-only here and are controlled by the server owner.</p>
 </section>
 <section class="card">
+<h2>Anti-spam</h2>
+<div class="row"><div><span class="pill">Cooldown</span><div class="metric"><?= $policy->uploadCooldownSeconds() ?>s</div></div><div><span class="pill">Per IP / hour</span><div class="metric"><?= $policy->uploadsPerHourPerIp() ?></div></div></div>
+<p class="muted">Global cap: <?= $policy->globalUploadsPerHour() ?> uploads/hour. Uploads pause automatically before free disk space drops below <?= $minimumFreeMiB ?> MiB.</p>
+</section>
+<section class="card wide">
 <h2>Library</h2>
 <div class="row"><div><span class="pill">Songs</span><div class="metric"><?= count($songs) ?></div><small>ID <?= $app->customSongs()->minSongID() ?>–<?= $app->customSongs()->maxSongID() ?></small></div><div><span class="pill">SFX</span><div class="metric"><?= count($sfxRows) ?></div><small>ID <?= $app->customSfx()->minSfxID() ?>–<?= $app->customSfx()->maxSfxID() ?></small></div></div>
 </section>

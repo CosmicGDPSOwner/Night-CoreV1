@@ -5,6 +5,7 @@
 !.env.production.example
 !.env.staging.example
 !.env.shared.example
+/config/media.php
 
 # Dependencies
 /vendor/

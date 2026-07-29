@@ -116,3 +116,11 @@ CREATE TABLE IF NOT EXISTS `{{prefix}}core_level_lists` (
     KEY `idx_core_level_lists_likes` (`likes`),
     KEY `idx_core_level_lists_downloads` (`downloads`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `{{prefix}}core_list_downloads` (
+    `listID` BIGINT UNSIGNED NOT NULL,
+    `ipHash` CHAR(64) NOT NULL,
+    `downloadedAt` BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (`listID`, `ipHash`),
+    KEY `idx_core_list_downloads_time` (`downloadedAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

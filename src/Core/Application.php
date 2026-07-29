@@ -9,6 +9,7 @@ use NightCore\Domain\Accounts\AccountService;
 use NightCore\Domain\Accounts\AuthRateLimiter;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
+use NightCore\Domain\Levels\LevelAccessPolicy;
 use NightCore\Domain\Levels\LevelRepository;
 use NightCore\Domain\Levels\LevelSearchBridge;
 use NightCore\Domain\Levels\LevelService;
@@ -119,6 +120,7 @@ final class Application
             $storagePath = $defaultStorage;
         }
 
+        $authenticator = $this->authenticator();
         return new LevelService(
             $this->levelRepository,
             new LevelStorage(
@@ -126,7 +128,8 @@ final class Application
                 max(1, Config::getInt('LEVEL_MAX_BYTES', 8388608))
             ),
             $this->accountRepository,
-            $this->authenticator(),
+            $authenticator,
+            new LevelAccessPolicy($this->socialRepository, $authenticator),
             max(0, Config::getInt('LEVEL_UPLOAD_COOLDOWN_SECONDS', 60))
         );
     }

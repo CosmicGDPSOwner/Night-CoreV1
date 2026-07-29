@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS `{{prefix}}core_staff_roles` (
     `roleID` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(64) NOT NULL,
     `priority` INT NOT NULL DEFAULT 0,
+    `modBadgeLevel` TINYINT UNSIGNED NOT NULL DEFAULT 0,
     `badgeText` VARCHAR(24) NOT NULL DEFAULT '',
     `badgeColor` CHAR(7) NOT NULL DEFAULT '',
     `commentColor` CHAR(7) NOT NULL DEFAULT '',

@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# When the repository root itself is forced to be the document root (shared hosting),
+# expose only files/directories that exist under public/. Everything else returns 404.
+RewriteRule ^public(?:/|$) - [L]
+
+RewriteCond %{DOCUMENT_ROOT}/public/$1 -f [OR]
+RewriteCond %{DOCUMENT_ROOT}/public/$1 -d
+RewriteRule ^(.+)$ public/$1 [L]
+
+# Do not expose bootstrap.php, .env, src/, migrations/, data/, docs/, tests/, etc.
+RewriteRule ^ - [R=404,L]

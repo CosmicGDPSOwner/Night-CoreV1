@@ -14,6 +14,15 @@ Config::loadEnv($root . '/.env');
 
 $command = $argv[1] ?? 'help';
 
+$printHelp = static function (): void {
+    echo "Night Core V1\n\n";
+    echo "Commands:\n";
+    echo "  php bin/nightcore self-test   Run DB-free core tests\n";
+    echo "  php bin/nightcore install     Prepare storage, migrate and run deployment checks\n";
+    echo "  php bin/nightcore doctor      Check production readiness\n";
+    echo "  php bin/nightcore migrate     Apply pending SQL migrations\n";
+};
+
 $runMigrations = static function (Application $app) use ($root): array {
     $runner = new MigrationRunner($app->db(), $app->tables());
     return $runner->migrate($root . '/migrations');
@@ -42,6 +51,20 @@ try {
         exit(0);
     }
 
+    if ($command === 'help') {
+        $printHelp();
+        exit(0);
+    }
+
+    if (!in_array($command, ['install', 'doctor', 'migrate'], true)) {
+        $printHelp();
+        exit(1);
+    }
+
+    if ($command === 'install' && !is_file($root . '/.env')) {
+        throw new RuntimeException('Missing .env. Copy .env.production.example to .env and configure it first.');
+    }
+
     /** @var Application $app */
     $app = Application::boot();
 
@@ -58,10 +81,6 @@ try {
     }
 
     if ($command === 'install') {
-        if (!is_file($root . '/.env')) {
-            throw new RuntimeException('Missing .env. Copy .env.production.example to .env and configure it first.');
-        }
-
         $storage = DeploymentInspector::ensureLevelStorage($root);
         echo 'Level storage: ' . $storage . PHP_EOL;
 
@@ -79,17 +98,7 @@ try {
         exit($ok ? 0 : 2);
     }
 
-    if ($command === 'doctor') {
-        exit($printDoctor($app) ? 0 : 2);
-    }
-
-    echo "Night Core V1\n\n";
-    echo "Commands:\n";
-    echo "  php bin/nightcore self-test   Run DB-free core tests\n";
-    echo "  php bin/nightcore install     Prepare storage, migrate and run deployment checks\n";
-    echo "  php bin/nightcore doctor      Check production readiness\n";
-    echo "  php bin/nightcore migrate     Apply pending SQL migrations\n";
-    exit($command === 'help' ? 0 : 1);
+    exit($printDoctor($app) ? 0 : 2);
 } catch (Throwable $e) {
     fwrite(STDERR, 'Night Core error: ' . $e->getMessage() . PHP_EOL);
     exit(1);

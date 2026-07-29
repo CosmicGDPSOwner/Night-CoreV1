@@ -10,9 +10,12 @@ use NightCore\Domain\Accounts\AuthRateLimiter;
 use NightCore\Domain\Content\CommentAccessPolicy;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
+use NightCore\Domain\Content\CustomSfxService;
+use NightCore\Domain\Content\CustomSfxStorage;
 use NightCore\Domain\Content\CustomSongIdAllocator;
 use NightCore\Domain\Content\CustomSongService;
 use NightCore\Domain\Content\CustomSongStorage;
+use NightCore\Domain\Content\MediaSettingsRepository;
 use NightCore\Domain\Content\NewgroundsSongProvider;
 use NightCore\Domain\Levels\LevelAccessPolicy;
 use NightCore\Domain\Levels\LevelLifecycleRepository;
@@ -50,6 +53,7 @@ final class Application
     private SocialRepository $socialRepository;
     private ProgressRepository $progressRepository;
     private ModerationRepository $moderationRepository;
+    private MediaSettingsRepository $mediaSettingsRepository;
 
     public function __construct(private PDO $db, private TableNames $tables)
     {
@@ -70,6 +74,7 @@ final class Application
         $this->socialRepository = new SocialRepository($db, $tables);
         $this->progressRepository = new ProgressRepository($db, $tables);
         $this->moderationRepository = new ModerationRepository($db, $tables);
+        $this->mediaSettingsRepository = new MediaSettingsRepository($db, $tables);
     }
 
     public static function boot(): self
@@ -166,6 +171,11 @@ final class Application
         );
     }
 
+    public function mediaSettings(): MediaSettingsRepository
+    {
+        return $this->mediaSettingsRepository;
+    }
+
     public function customSongs(): CustomSongService
     {
         $minID = max(1, Config::getInt('CUSTOM_SONG_ID_MIN', 2000000));
@@ -174,6 +184,19 @@ final class Application
             $this->contentRepository,
             $this->customSongStorage(),
             new CustomSongIdAllocator($this->db, $this->tables, $minID, $maxID)
+        );
+    }
+
+    public function customSfx(): CustomSfxService
+    {
+        $minID = max(1, Config::getInt('CUSTOM_SFX_ID_MIN', 2000000));
+        $maxID = max($minID, Config::getInt('CUSTOM_SFX_ID_MAX', 8999999));
+        return new CustomSfxService(
+            $this->db,
+            $this->tables,
+            $this->customSfxStorage(),
+            $minID,
+            $maxID
         );
     }
 
@@ -246,7 +269,21 @@ final class Application
         if ($storagePath === '') {
             $storagePath = $defaultStorage;
         }
-        return new CustomSongStorage($storagePath, max(1024, Config::getInt('CUSTOM_SONG_MAX_BYTES', 26214400)));
+        $fallback = max(1024, Config::getInt('CUSTOM_SONG_MAX_BYTES', 26214400));
+        $maxBytes = $this->mediaSettingsRepository->int(MediaSettingsRepository::SONG_MAX_BYTES, $fallback, 1024);
+        return new CustomSongStorage($storagePath, $maxBytes);
+    }
+
+    private function customSfxStorage(): CustomSfxStorage
+    {
+        $defaultStorage = dirname(__DIR__, 2) . '/data/sfx';
+        $storagePath = trim(Config::get('CUSTOM_SFX_STORAGE_PATH', '') ?? '');
+        if ($storagePath === '') {
+            $storagePath = $defaultStorage;
+        }
+        $fallback = max(1024, Config::getInt('CUSTOM_SFX_MAX_BYTES', 10485760));
+        $maxBytes = $this->mediaSettingsRepository->int(MediaSettingsRepository::SFX_MAX_BYTES, $fallback, 1024);
+        return new CustomSfxStorage($storagePath, $maxBytes);
     }
 
     /** @return array<int,int> */

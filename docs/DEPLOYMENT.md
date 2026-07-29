@@ -9,6 +9,7 @@ This guide describes the first production-ready deployment path for Night Core V
 - MariaDB/MySQL reachable from the application host.
 - A dedicated database and non-root database user.
 - A writable level-storage directory outside the public document root.
+- Writable song/SFX storage outside the public document root when the owner media dashboard is enabled.
 - A web server whose document root points to `public/`.
 
 Do not expose the repository root as the web document root. The `.env`, migrations, source code and runtime data must not be directly downloadable over HTTP.
@@ -26,7 +27,8 @@ Important production rules:
 
 - keep `APP_DEBUG=0`;
 - use a dedicated database user rather than `root`;
-- keep `LEVEL_STORAGE_PATH` outside `public/`;
+- keep `LEVEL_STORAGE_PATH`, `CUSTOM_SONG_STORAGE_PATH` and `CUSTOM_SFX_STORAGE_PATH` outside `public/`;
+- set `MEDIA_ADMIN_TOKEN` to a long random secret, or intentionally reuse `CUSTOM_SONG_ADMIN_TOKEN` through the compatibility fallback;
 - set `CORE_ADMIN_ACCOUNT_IDS` only to trusted bootstrap administrator account IDs;
 - keep `TRUST_PROXY_HEADERS=0` until the origin is restricted to a trusted reverse proxy.
 
@@ -48,9 +50,10 @@ The command:
 
 1. verifies that `.env` exists;
 2. creates/checks the level-storage directory;
-3. applies all pending ordered SQL migrations;
-4. runs the deployment doctor;
-5. exits non-zero if a critical readiness check fails.
+3. creates/checks song and SFX storage when the media dashboard is enabled;
+4. applies all pending ordered SQL migrations;
+5. runs the deployment doctor;
+6. exits non-zero if a critical readiness check fails.
 
 The installer is safe to run again during an update. Already-applied migrations are skipped.
 
@@ -64,20 +67,26 @@ Point the site document root to:
 
 Do not point it to `/path/to/Night-CoreV1`.
 
-The level-storage path should normally be outside the repository, for example:
+Runtime storage should normally be outside the repository, for example:
 
 ```text
 /var/lib/nightcore/levels
+/var/lib/nightcore/songs
+/var/lib/nightcore/sfx
 ```
 
-Grant the PHP/web-server process write access to that directory and no broader filesystem access than necessary.
+Grant the PHP/web-server process write access to those directories and no broader filesystem access than necessary.
+
+The owner media dashboard is available at `/mediaAdmin.php`. Do not enter its token over plain public HTTP. Use HTTPS in production; an SSH local tunnel is acceptable for a temporary HTTP-only test origin.
+
+See `docs/MEDIA_DASHBOARD.md` for the dashboard, runtime upload limits and SFX details.
 
 ## 5. Health and readiness
 
 Night Core exposes two operational checks:
 
 - `/health.php` checks that the application can bootstrap and reach the database;
-- `/ready.php` additionally verifies required PHP extensions, core tables, migration state, writable level storage and production-critical configuration.
+- `/ready.php` additionally verifies required PHP extensions, core tables, migration state, required writable storage and production-critical configuration.
 
 The public readiness response is intentionally minimal:
 
@@ -119,6 +128,8 @@ For each new release:
 php bin/nightcore migrate
 php bin/nightcore doctor
 ```
+
+When a release adds a new external storage path, create it with the correct web-server ownership before expecting `doctor` to pass.
 
 Before switching real GDPS traffic to a new revision, verify `/ready.php` returns HTTP 200 and run a test client against a disposable or staging database when the release includes protocol or schema changes.
 

@@ -33,7 +33,7 @@ final class DeploymentInspector
         try {
             $app->db()->query('SELECT 1')->fetchColumn();
             $checks[] = self::check('database', 'Database connection', true, 'reachable', true);
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             $checks[] = self::check('database', 'Database connection', false, 'unavailable', true);
         }
 
@@ -67,8 +67,10 @@ final class DeploymentInspector
             true
         );
 
+        $legacySongAdminEnabled = trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '';
+        $mediaAdminEnabled = trim(Config::get('MEDIA_ADMIN_TOKEN', '') ?? '') !== '' || $legacySongAdminEnabled;
+
         $songStorage = self::customSongStoragePath($root);
-        $songAdminEnabled = trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '';
         $localSongCount = 0;
         if ($app->schema()->tableExists('core_local_songs')) {
             try {
@@ -77,16 +79,36 @@ final class DeploymentInspector
                 $localSongCount = 0;
             }
         }
-        $songStorageRequired = $songAdminEnabled || $localSongCount > 0;
-        $songStorageOk = !$songStorageRequired || (is_dir($songStorage) && is_readable($songStorage) && (!$songAdminEnabled || is_writable($songStorage)));
+        $songStorageRequired = $mediaAdminEnabled || $localSongCount > 0;
+        $songStorageOk = !$songStorageRequired || (is_dir($songStorage) && is_readable($songStorage) && (!$mediaAdminEnabled || is_writable($songStorage)));
         if (!$songStorageRequired) {
             $songStorageDetail = 'disabled; ' . $songStorage;
         } elseif ($songStorageOk) {
-            $songStorageDetail = $songStorage . ($songAdminEnabled ? ' (writable)' : ' (readable)');
+            $songStorageDetail = $songStorage . ($mediaAdminEnabled ? ' (writable)' : ' (readable)');
         } else {
             $songStorageDetail = $songStorage . ' (missing or insufficient permissions)';
         }
         $checks[] = self::check('custom_song_storage', 'Custom song storage', $songStorageOk, $songStorageDetail, $songStorageRequired);
+
+        $sfxStorage = self::customSfxStoragePath($root);
+        $localSfxCount = 0;
+        if ($app->schema()->tableExists('core_local_sfx')) {
+            try {
+                $localSfxCount = (int) $app->db()->query('SELECT COUNT(*) FROM ' . $app->tables()->get('core_local_sfx') . ' WHERE bytes > 0')->fetchColumn();
+            } catch (\Throwable) {
+                $localSfxCount = 0;
+            }
+        }
+        $sfxStorageRequired = $mediaAdminEnabled || $localSfxCount > 0;
+        $sfxStorageOk = !$sfxStorageRequired || (is_dir($sfxStorage) && is_readable($sfxStorage) && (!$mediaAdminEnabled || is_writable($sfxStorage)));
+        if (!$sfxStorageRequired) {
+            $sfxStorageDetail = 'disabled; ' . $sfxStorage;
+        } elseif ($sfxStorageOk) {
+            $sfxStorageDetail = $sfxStorage . ($mediaAdminEnabled ? ' (writable)' : ' (readable)');
+        } else {
+            $sfxStorageDetail = $sfxStorage . ' (missing or insufficient permissions)';
+        }
+        $checks[] = self::check('custom_sfx_storage', 'Custom SFX storage', $sfxStorageOk, $sfxStorageDetail, $sfxStorageRequired);
 
         $appEnv = strtolower(trim(Config::get('APP_ENV', 'development') ?? 'development'));
         $debugEnabled = Config::getBool('APP_DEBUG', false);
@@ -138,6 +160,15 @@ final class DeploymentInspector
         return rtrim($root, '/\\') . '/data/songs';
     }
 
+    public static function customSfxStoragePath(string $root): string
+    {
+        $configured = trim(Config::get('CUSTOM_SFX_STORAGE_PATH', '') ?? '');
+        if ($configured !== '') {
+            return rtrim($configured, '/\\');
+        }
+        return rtrim($root, '/\\') . '/data/sfx';
+    }
+
     public static function ensureLevelStorage(string $root): string
     {
         $path = self::levelStoragePath($root);
@@ -158,6 +189,18 @@ final class DeploymentInspector
         }
         if (!is_writable($path)) {
             throw new RuntimeException('Custom song storage directory is not writable.');
+        }
+        return $path;
+    }
+
+    public static function ensureCustomSfxStorage(string $root): string
+    {
+        $path = self::customSfxStoragePath($root);
+        if (!is_dir($path) && !mkdir($path, 0775, true) && !is_dir($path)) {
+            throw new RuntimeException('Unable to create custom SFX storage directory.');
+        }
+        if (!is_writable($path)) {
+            throw new RuntimeException('Custom SFX storage directory is not writable.');
         }
         return $path;
     }

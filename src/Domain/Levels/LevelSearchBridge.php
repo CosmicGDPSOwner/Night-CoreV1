@@ -22,11 +22,12 @@ final class LevelSearchBridge
     public function search(array $input, int $accountID, string $gjp, string $gjp2, string $ip): string
     {
         if (($input['gauntlet'] ?? '') !== '' && (int) $input['gauntlet'] > 0) {
-            $ids = $this->gauntletLevelIDs((int) $input['gauntlet']);
+            $gauntletID = (int) $input['gauntlet'];
+            $ids = $this->gauntletLevelIDs($gauntletID);
             if ($ids === []) {
                 return '-1';
             }
-            return $this->delegateIds($input, $ids, $accountID, $gjp, $gjp2, $ip, true);
+            return $this->delegateIds($input, $ids, $accountID, $gjp, $gjp2, $ip, $gauntletID);
         }
 
         $type = $this->int($input['type'] ?? '0', 0, 100);
@@ -74,20 +75,20 @@ final class LevelSearchBridge
             if ($ids === []) {
                 return '-1';
             }
-            return $this->delegateIds($input, $ids, $accountID, $gjp, $gjp2, $ip, false);
+            return $this->delegateIds($input, $ids, $accountID, $gjp, $gjp2, $ip, 0);
         }
 
         return $this->levels->search($input, $accountID, $gjp, $gjp2, $ip);
     }
 
     /** @param array<string,string> $input @param array<int,int> $ids */
-    private function delegateIds(array $input, array $ids, int $accountID, string $gjp, string $gjp2, string $ip, bool $gauntlet): string
+    private function delegateIds(array $input, array $ids, int $accountID, string $gjp, string $gjp2, string $ip, int $gauntletID): string
     {
         $input['type'] = count($ids) > 10 ? '26' : '10';
         $input['str'] = implode(',', array_slice(array_values(array_unique($ids)), 0, 100));
         $input['gauntlet'] = '';
-        if ($gauntlet) {
-            // The legacy query orders gauntlet results itself; LevelService provides the same level set and hashes.
+        if ($gauntletID > 0) {
+            $input['_gauntletID'] = (string) $gauntletID;
             $input['page'] = '0';
         }
         return $this->levels->search($input, $accountID, $gjp, $gjp2, $ip);

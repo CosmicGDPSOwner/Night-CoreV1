@@ -8,9 +8,16 @@ Naming convention:
 
 The placeholder `{{prefix}}` is replaced with `CORE_TABLE_PREFIX` by the migration runner.
 
-Current bootstrap migration:
+Compatibility migrations may also use one directive per line:
+
+`-- @ensure-column users stars INT NOT NULL DEFAULT 0`
+
+The migration runner checks the configured table first and only runs `ALTER TABLE ... ADD COLUMN` when the column is missing. This lets the same migration work against a fresh Night Core database and an existing compatible GDPS schema without relying on database-vendor-specific `ADD COLUMN IF NOT EXISTS` syntax.
+
+Current migrations:
 
 - `0001_accounts.sql` — minimal account/users tables for a fresh installation plus the optional authentication-attempt table.
+- `0002_profiles.sql` — GD 2.2 user stats, cosmetics and account profile settings required by the profile endpoints.
 
 Existing Cvolton-compatible databases are not recreated: `CREATE TABLE IF NOT EXISTS` leaves compatible existing tables in place. Always run `php bin/nightcore doctor` against a disposable copy before applying migrations to a migrated GDPS.
 

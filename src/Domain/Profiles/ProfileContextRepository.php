@@ -20,9 +20,14 @@ final class ProfileContextRepository
         }
         $query = $this->db->prepare(
             'SELECT 1 FROM ' . $this->tables->get('core_blocks') .
-            ' WHERE (ownerAccountID = :viewer AND blockedAccountID = :target) OR (ownerAccountID = :target AND blockedAccountID = :viewer) LIMIT 1'
+            ' WHERE (ownerAccountID = :viewer1 AND blockedAccountID = :target1) OR (ownerAccountID = :target2 AND blockedAccountID = :viewer2) LIMIT 1'
         );
-        $query->execute([':viewer' => $viewerAccountID, ':target' => $targetAccountID]);
+        $query->execute([
+            ':viewer1' => $viewerAccountID,
+            ':target1' => $targetAccountID,
+            ':target2' => $targetAccountID,
+            ':viewer2' => $viewerAccountID,
+        ]);
         return $query->fetchColumn() !== false;
     }
 
@@ -75,9 +80,9 @@ final class ProfileContextRepository
 
         $friends = $this->db->prepare(
             'SELECT COUNT(*) FROM ' . $this->tables->get('core_friendships') .
-            ' WHERE (accountLow = :accountID AND newForLow = 1) OR (accountHigh = :accountID AND newForHigh = 1)'
+            ' WHERE (accountLow = :accountLow AND newForLow = 1) OR (accountHigh = :accountHigh AND newForHigh = 1)'
         );
-        $friends->execute([':accountID' => $accountID]);
+        $friends->execute([':accountLow' => $accountID, ':accountHigh' => $accountID]);
 
         return [
             'messages' => (int) $messages->fetchColumn(),

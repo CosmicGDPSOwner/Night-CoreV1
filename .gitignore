@@ -4,6 +4,7 @@
 !.env.example
 !.env.production.example
 !.env.staging.example
+!.env.shared.example
 
 # Dependencies
 /vendor/

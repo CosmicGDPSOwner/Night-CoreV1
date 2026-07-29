@@ -9,7 +9,7 @@ The page provides:
 - MP3 song upload using the existing local-song library;
 - Ogg (`.ogg`) SFX upload using the separate local SFX library;
 - read-only song/SFX lists with IDs, sizes and download URLs;
-- read-only display of the current per-file limits;
+- read-only display of per-file limits and anti-spam policy;
 - CSRF protection for browser upload forms.
 
 There is no admin-token prompt on this page. It also does not expose file deletion or limit-changing actions to visitors.
@@ -32,6 +32,10 @@ return [
     'public_uploads' => true,
     'song_max_mib' => 25,
     'sfx_max_mib' => 10,
+    'upload_cooldown_seconds' => 30,
+    'uploads_per_hour_per_ip' => 10,
+    'global_uploads_per_hour' => 200,
+    'minimum_free_space_mib' => 512,
 ];
 ```
 
@@ -46,9 +50,22 @@ PHP needs read access; web users do not need write access.
 
 `public_uploads=false` keeps the library page readable but hides/rejects upload forms. The default is disabled when `config/media.php` does not exist.
 
-## Upload limits
+## Anti-spam and disk protection
 
-`song_max_mib` and `sfx_max_mib` are integer MiB values from `1` to `1024`. Night Core applies them when storing files. Environment values remain fallback defaults when the private PHP policy omits a limit:
+Before persisting an anonymous upload, Night Core applies:
+
+- `upload_cooldown_seconds`: minimum delay between reservations from the same IP;
+- `uploads_per_hour_per_ip`: hourly upload cap per IP;
+- `global_uploads_per_hour`: hourly cap across the public uploader;
+- `minimum_free_space_mib`: disk-space reserve below which new uploads are automatically paused.
+
+Rate-limit state lives in MariaDB table `core_media_upload_rate_limits`. Client IP addresses are not stored in plaintext; the limiter uses a SHA-256 hash as its key.
+
+A numeric cooldown/hourly limit can be set to `0` to disable only that limit. With `TRUST_PROXY_HEADERS=0`, the client address comes from `REMOTE_ADDR`. `X-Forwarded-For` is trusted only when `TRUST_PROXY_HEADERS=1`; the origin must then be protected against direct proxy bypass.
+
+## File-size limits
+
+`song_max_mib` and `sfx_max_mib` are integer MiB values. Night Core applies them when storing files. Environment values remain fallback defaults when the private PHP policy omits a limit:
 
 ```env
 CUSTOM_SONG_MAX_BYTES=26214400
@@ -97,12 +114,8 @@ The server-side SFX library, upload, storage, range download and level `sfxIDs` 
 
 Do not treat successful browser download of an SFX as proof that an unmodified Geometry Dash client will request that same URL.
 
-## Database migration
+## Database migrations
 
-Migration `0010_media_dashboard.sql` creates `core_local_sfx` and the earlier `core_media_settings` table. The public-dashboard design no longer reads or writes upload limits through `core_media_settings`; limits now come from the private server-local PHP policy.
-
-## Public-upload security
-
-Public means unauthenticated: anyone who can reach `/mediaAdmin.php` can submit a valid file while `public_uploads=true`. Per-file limits do not prevent somebody from repeatedly uploading files and consuming disk space. Internet-facing installations should additionally apply an appropriate rate/quota/moderation layer at the reverse proxy or application boundary.
+`0010_media_dashboard.sql` creates the local SFX/media tables. `0011_public_media_rate_limits.sql` adds persistent anonymous-upload rate-limit state.
 
 Only host audio that you are permitted to distribute.

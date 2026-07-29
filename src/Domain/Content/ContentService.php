@@ -14,7 +14,8 @@ final class ContentService
         private ContentRepository $content,
         private AccountRepository $accounts,
         private AccountAuthenticator $authenticator,
-        private ProgressRepository $progress
+        private ProgressRepository $progress,
+        private CommentAccessPolicy $commentAccess
     ) {
     }
 
@@ -93,12 +94,21 @@ final class ContentService
         return '1';
     }
 
-    public function deleteComment(int $accountID, string $gjp, string $gjp2, string $ip, int $commentID): string
-    {
+    public function deleteComment(
+        int $accountID,
+        string $gjp,
+        string $gjp2,
+        string $ip,
+        int $commentID,
+        int $targetType
+    ): string {
         if ($commentID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
-        return $this->content->deleteComment($commentID, $accountID) ? '1' : '-1';
+        if (!$this->commentAccess->canDelete($accountID, $commentID, $targetType)) {
+            return '-1';
+        }
+        return $this->content->deleteComment($commentID, $accountID, true) ? '1' : '-1';
     }
 
     public function levelComments(int $levelID, int $userID, int $page, int $count, int $mode, int $gameVersion, int $binaryVersion): string

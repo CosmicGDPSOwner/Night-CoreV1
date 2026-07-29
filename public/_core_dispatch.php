@@ -25,6 +25,13 @@ try {
         return $default;
     };
 
+    if ($endpoint === 'getGJLevelLists.php' && (int) Request::post('type') === 0) {
+        $exactList = trim(Request::post('str'));
+        if ($exactList !== '' && ctype_digit($exactList) && (int) $exactList > 0) {
+            $app->trackListDownload((int) $exactList, $ip);
+        }
+    }
+
     $result = match ($endpoint) {
         'getGJSongInfo.php' => $app->content()->song((int) Request::post('songID')),
 

@@ -1,0 +1,78 @@
+name: Core baseline
+
+on:
+  push:
+    branches:
+      - agent/core-baseline
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: nightcore_baseline
+          MARIADB_USER: nightcore
+          MARIADB_PASSWORD: nightcore
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -unightcore -pnightcore --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 1
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: nightcore_baseline
+      DB_USER: nightcore
+      DB_PASS: nightcore
+      DB_CHARSET: utf8mb4
+      CORE_TABLE_PREFIX: bt_
+      ACCOUNT_PREACTIVATE: 1
+      AUTH_MAX_ATTEMPTS: 0
+      LEVEL_STORAGE_PATH: /tmp/nightcore-baseline-levels
+      LEVEL_MAX_BYTES: 8388608
+      LEVEL_UPLOAD_COOLDOWN_SECONDS: 0
+      SAVE_MAX_BYTES: 16777216
+      TRUST_PROXY_HEADERS: 0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql
+          coverage: none
+
+      - name: PHP syntax
+        run: find src public tests -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Self-test
+        run: php tests/selftest.php
+
+      - name: Bootstrap MariaDB integration
+        run: php tests/integration.php
+
+      - name: End-to-end universal baseline
+        run: |
+          php tests/baseline_http.php || {
+            echo '--- baseline HTTP server log ---'
+            cat /tmp/nightcore-baseline-http.log 2>/dev/null || true
+            exit 1
+          }

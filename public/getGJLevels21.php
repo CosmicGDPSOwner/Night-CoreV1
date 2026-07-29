@@ -21,7 +21,7 @@ try {
         $input[$key] = Request::post($key);
     }
 
-    Response::gd($app->levels()->search(
+    Response::gd($app->levelSearch()->search(
         $input,
         (int) Request::post('accountID'),
         Request::post('gjp'),

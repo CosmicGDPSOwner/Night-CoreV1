@@ -8,6 +8,9 @@ use NightCore\Core\Request;
 use NightCore\Core\Response;
 
 try {
+    /** @var NightCore\Core\Application $app */
+    $app = require dirname(__DIR__) . '/bootstrap.php';
+
     foreach (['gameVersion', 'levelName', 'levelString'] as $required) {
         if (!array_key_exists($required, $_POST)) {
             Response::gd('-1');
@@ -18,9 +21,6 @@ try {
     if ($levelString === '' || strlen($levelString) > max(1, Config::getInt('LEVEL_MAX_BYTES', 8388608))) {
         Response::gd('-1');
     }
-
-    /** @var NightCore\Core\Application $app */
-    $app = require dirname(__DIR__) . '/bootstrap.php';
 
     $keys = [
         'gameVersion', 'binaryVersion', 'levelID', 'levelName', 'levelDesc', 'levelVersion', 'levelLength', 'audioTrack',

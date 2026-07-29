@@ -16,6 +16,7 @@ final class LevelService
         private LevelStorage $storage,
         private AccountRepository $accounts,
         private AccountAuthenticator $authenticator,
+        private LevelAccessPolicy $accessPolicy,
         private int $uploadCooldownSeconds
     ) {
     }
@@ -103,10 +104,14 @@ final class LevelService
             return '-1';
         }
 
-        if ((int) $level['unlisted2'] !== 0) {
-            if ($accountID <= 0 || (string) $accountID !== (string) $level['extID'] || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
-                return '-1';
-            }
+        if ((int) $level['unlisted2'] !== 0 && !$this->accessPolicy->canAccessPrivate(
+            $accountID,
+            (int) $level['extID'],
+            $gjp,
+            $gjp2,
+            $ip
+        )) {
+            return '-1';
         }
 
         if ($this->bool($input['inc'] ?? '0')) {
@@ -363,17 +368,23 @@ final class LevelService
         }
 
         $exactPrivateSearch = isset($criteria['levelID']);
+        $gauntletID = $this->int($input['_gauntletID'] ?? '0');
+        $levelPrefix = $gauntletID > 0 ? '44:' . $gauntletID . ':' : '';
         $levelStrings = [];
         $userStrings = [];
         $hashRows = [];
         foreach ($result['rows'] as $level) {
-            if ($exactPrivateSearch && (int) $level['unlisted2'] !== 0) {
-                if ($accountID <= 0 || (string) $accountID !== (string) $level['extID'] || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
-                    return '-1';
-                }
+            if ($exactPrivateSearch && (int) $level['unlisted2'] !== 0 && !$this->accessPolicy->canAccessPrivate(
+                $accountID,
+                (int) $level['extID'],
+                $gjp,
+                $gjp2,
+                $ip
+            )) {
+                return '-1';
             }
 
-            $levelStrings[] = implode(':', [
+            $levelStrings[] = $levelPrefix . implode(':', [
                 '1', (string) (int) $level['levelID'],
                 '2', $this->field((string) $level['levelName'], 100),
                 '5', (string) (int) $level['levelVersion'],

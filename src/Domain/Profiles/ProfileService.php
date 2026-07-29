@@ -9,10 +9,13 @@ use NightCore\Security\AccountAuthenticator;
 
 final class ProfileService
 {
+    /** @param array<int,int> $adminAccountIDs */
     public function __construct(
         private ProfileRepository $profiles,
         private AccountRepository $accounts,
-        private AccountAuthenticator $authenticator
+        private AccountAuthenticator $authenticator,
+        private ProfileContextRepository $context,
+        private array $adminAccountIDs
     ) {
     }
 
@@ -30,6 +33,9 @@ final class ProfileService
         if ($viewerAccountID > 0 && !$this->authenticator->verify($viewerAccountID, $gjp, $gjp2, $ip)) {
             return '-1';
         }
+        if ($this->context->isBlockedEither($viewerAccountID, $targetAccountID)) {
+            return '-1';
+        }
 
         $user = $this->profiles->findUserByAccountId($targetAccountID);
         if ($user === null) {
@@ -40,6 +46,11 @@ final class ProfileService
         $rank = (int) $user['isBanned'] === 0 ? $this->profiles->rankForStars((int) $user['stars']) : 0;
         $creatorPoints = (int) round((float) $user['creatorPoints'], 0, PHP_ROUND_HALF_DOWN);
         $extID = ctype_digit((string) $user['extID']) ? (string) $user['extID'] : '0';
+        $relationship = $this->context->relationship($viewerAccountID, $targetAccountID);
+        $friendState = (int) $relationship['state'];
+        $badge = in_array($targetAccountID, $this->adminAccountIDs, true)
+            ? 2
+            : $this->context->moderatorBadge($targetAccountID);
 
         $result = implode(':', [
             '1', $this->field((string) $user['userName']),
@@ -71,10 +82,10 @@ final class ProfileService
             '54', (string) (int) $user['accJetpack'],
             '30', (string) $rank,
             '16', $extID,
-            '31', '0',
+            '31', (string) $friendState,
             '44', $this->field((string) $settings['twitter']),
             '45', $this->field((string) $settings['twitch']),
-            '49', '0',
+            '49', (string) $badge,
             '55', $this->field((string) $user['dinfo']),
             '56', $this->field((string) $user['sinfo']),
             '57', $this->field((string) $user['pinfo']),
@@ -85,7 +96,13 @@ final class ProfileService
         ]);
 
         if ($viewerAccountID === $targetAccountID) {
-            $result .= ':38:0:39:0:40:0';
+            $counts = $this->context->notificationCounts($targetAccountID);
+            $result .= ':38:' . $counts['messages'] . ':39:' . $counts['requests'] . ':40:' . $counts['friends'];
+        } elseif ($friendState === 3 && is_array($relationship['request'])) {
+            $request = $relationship['request'];
+            $result .= ':32:' . (int) $request['requestID']
+                . ':35:' . $this->field((string) $request['message'])
+                . ':37:' . date('d/m/Y G.i', (int) $request['createdAt']);
         }
 
         return $result . ':29:1';

@@ -43,6 +43,17 @@ final class LevelStorage
         return $value === false ? null : $value;
     }
 
+    public function delete(int $levelID): void
+    {
+        if ($levelID <= 0) {
+            return;
+        }
+        $path = $this->path($levelID);
+        if (is_file($path) && !@unlink($path)) {
+            throw new RuntimeException('Unable to delete level payload.');
+        }
+    }
+
     private function path(int $levelID): string
     {
         return rtrim($this->directory, '/\\') . DIRECTORY_SEPARATOR . $levelID;

@@ -8,13 +8,13 @@ use NightCore\Core\Request;
 use NightCore\Core\Response;
 
 try {
+    /** @var NightCore\Core\Application $app */
+    $app = require dirname(__DIR__) . '/bootstrap.php';
+
     $levelID = (int) Request::post('levelID');
     if ($levelID <= 0) {
         Response::gd('-1');
     }
-
-    /** @var NightCore\Core\Application $app */
-    $app = require dirname(__DIR__) . '/bootstrap.php';
 
     Response::gd($app->levels()->download(
         $levelID,

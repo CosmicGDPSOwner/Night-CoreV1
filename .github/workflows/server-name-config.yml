@@ -1,0 +1,20 @@
+name: Server name config
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  nginx-cgi-collision:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.1', '8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Verify namespaced GDPS server name wins over CGI SERVER_NAME
+        run: php tests/config_server_name.php

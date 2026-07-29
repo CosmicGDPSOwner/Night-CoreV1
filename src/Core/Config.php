@@ -54,6 +54,16 @@ final class Config
 
     public static function get(string $key, ?string $default = null): ?string
     {
+        // SERVER_NAME is a standard CGI/FastCGI variable and is commonly
+        // injected by Nginx/Apache. Prefer Night Core's namespaced identity
+        // key so the web server cannot silently replace the configured GDPS name.
+        if ($key === 'SERVER_NAME') {
+            $namespaced = self::runtimeValue('NIGHTCORE_SERVER_NAME');
+            if ($namespaced !== null) {
+                return $namespaced;
+            }
+        }
+
         $value = self::runtimeValue($key);
         return $value ?? $default;
     }

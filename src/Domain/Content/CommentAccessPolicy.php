@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NightCore\Domain\Content;
 
 use NightCore\Core\TableNames;
+use NightCore\Domain\Moderation\StaffAccessService;
 use PDO;
 
 final class CommentAccessPolicy
@@ -13,7 +14,8 @@ final class CommentAccessPolicy
     public function __construct(
         private PDO $db,
         private TableNames $tables,
-        private array $adminAccountIDs
+        private array $adminAccountIDs,
+        private ?StaffAccessService $staffAccess = null
     ) {
     }
 
@@ -34,6 +36,9 @@ final class CommentAccessPolicy
         }
 
         if ((int) $comment['accountID'] === $accountID) {
+            return true;
+        }
+        if ($this->staffAccess !== null && $this->staffAccess->has($accountID, 'comments.moderate')) {
             return true;
         }
         if (in_array($accountID, $this->adminAccountIDs, true)) {

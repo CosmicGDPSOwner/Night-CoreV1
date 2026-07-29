@@ -80,3 +80,40 @@ jobs:
             cat /tmp/nightcore-staging-smoke.log 2>/dev/null || true
             exit 1
           }
+
+  staging-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Prepare staging environment
+        run: cp .env.staging.example .env
+      - name: Validate compose configuration
+        run: STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml config >/tmp/nightcore-staging-compose.yml
+      - name: Build staging image
+        run: docker compose -f compose.staging.yml build --pull web
+      - name: Start staging database
+        run: STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml up -d db
+      - name: Install Night Core in staging stack
+        run: STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml run --rm web php bin/nightcore install
+      - name: Start staging web
+        run: STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml up -d web
+      - name: Smoke staging stack
+        run: |
+          sleep 2
+          php bin/nightcore-smoke http://127.0.0.1:18080 || {
+            echo '--- staging compose status ---'
+            STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml ps || true
+            echo '--- staging web log ---'
+            STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml logs web || true
+            echo '--- staging db log ---'
+            STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml logs db || true
+            exit 1
+          }
+      - name: Tear down staging stack
+        if: always()
+        run: STAGING_HTTP_PORT=18080 docker compose -f compose.staging.yml down -v

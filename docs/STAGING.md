@@ -25,9 +25,58 @@ chmod 600 .env
 
 Replace every `CHANGE_ME` value. Keep `APP_DEBUG=0` so staging exercises the same public error behavior as production.
 
-## 2. Web root
+For the Docker/VPS path, `DB_PASS` and `MARIADB_ROOT_PASSWORD` must be different strong passwords. The root password is used only to initialize the private MariaDB container; Night Core connects as `DB_USER`.
 
-The virtual host/document root must point to:
+## 2. Recommended VPS path: Docker Compose
+
+The repository contains `compose.staging.yml`. It builds an immutable Night Core image, stores MariaDB and level payloads in persistent named volumes, and binds the HTTP service to localhost only.
+
+Build the exact checked-out revision:
+
+```bash
+docker compose -f compose.staging.yml build --pull
+```
+
+Start MariaDB:
+
+```bash
+docker compose -f compose.staging.yml up -d db
+```
+
+Run the installer against the private database and persistent level volume:
+
+```bash
+docker compose -f compose.staging.yml run --rm web php bin/nightcore install
+```
+
+Then start the web service:
+
+```bash
+docker compose -f compose.staging.yml up -d web
+```
+
+The default listener is deliberately local-only:
+
+```text
+127.0.0.1:8080
+```
+
+Verify it on the VPS before publishing it through any proxy:
+
+```bash
+php bin/nightcore-smoke http://127.0.0.1:8080
+```
+
+Both staging stateful components survive container recreation:
+
+- `nightcore_staging_db` stores MariaDB data;
+- `nightcore_staging_levels` stores Geometry Dash level payloads.
+
+Do not use `docker compose down -v` on a staging installation you want to keep; `-v` deletes these persistent volumes.
+
+## 3. Manual web-server path
+
+When Docker is not used, the virtual host/document root must point to:
 
 ```text
 /path/to/Night-CoreV1/public
@@ -43,19 +92,10 @@ Recommended level storage:
 
 The PHP/web-server user needs write access to this directory.
 
-## 3. Install
-
-Run:
+Install and verify:
 
 ```bash
 php bin/nightcore install
-```
-
-The command prepares/checks level storage, applies pending migrations, and runs the deployment doctor.
-
-Then run:
-
-```bash
 php bin/nightcore doctor
 ```
 
@@ -63,7 +103,9 @@ Do not continue while a critical check reports `FAIL`.
 
 ## 4. Test the origin before Cloudflare
 
-Before proxying the hostname through Cloudflare, verify that the origin itself works over its intended HTTPS configuration.
+Before proxying the hostname through Cloudflare, verify that the origin itself works over the intended publication path.
+
+For a Docker VPS, keep Night Core itself on `127.0.0.1:8080` and let the host reverse proxy or tunnel be the only public entry point.
 
 From a machine that can reach the staging hostname:
 
@@ -84,10 +126,10 @@ The smoke client checks only operational endpoints. It does not create accounts,
 
 ## 5. Put Cloudflare in front
 
-After the origin passes the smoke test:
+After the local/origin smoke test passes:
 
-1. create the staging DNS record in Cloudflare;
-2. proxy it through Cloudflare;
+1. create the staging DNS/publication path in Cloudflare;
+2. publish only the local Night Core listener through the chosen reverse-proxy/tunnel path;
 3. use HTTPS end-to-end;
 4. repeat `php bin/nightcore-smoke` against the public staging hostname;
 5. restrict direct origin access where the hosting environment permits it;

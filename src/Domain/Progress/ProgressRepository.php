@@ -124,16 +124,48 @@ final class ProgressRepository
         return ['rows' => $query->fetchAll(), 'total' => $total];
     }
 
-    public function saveList(int $accountID, int $userID, int $listID, string $name, string $description, string $levelIDs, int $reward, int $unlisted): int
-    {
+    public function saveList(
+        int $accountID,
+        int $userID,
+        int $listID,
+        string $name,
+        string $description,
+        string $levelIDs,
+        int $difficulty,
+        int $listVersion,
+        int $original,
+        int $unlisted
+    ): int {
         $now = time();
         if ($listID > 0) {
-            $query = $this->db->prepare('UPDATE ' . $this->tables->get('core_level_lists') . ' SET listName = :name, listDesc = :description, levelIDs = :levelIDs, reward = :reward, unlisted = :unlisted, updatedAt = :updatedAt WHERE listID = :listID AND accountID = :accountID');
-            $query->execute([':name' => $name, ':description' => $description, ':levelIDs' => $levelIDs, ':reward' => $reward, ':unlisted' => $unlisted, ':updatedAt' => $now, ':listID' => $listID, ':accountID' => $accountID]);
+            $query = $this->db->prepare('UPDATE ' . $this->tables->get('core_level_lists') . ' SET listDesc = :description, listVersion = :listVersion, levelIDs = :levelIDs, difficulty = :difficulty, original = :original, unlisted = :unlisted, updatedAt = :updatedAt WHERE listID = :listID AND accountID = :accountID');
+            $query->execute([
+                ':description' => $description,
+                ':listVersion' => $listVersion,
+                ':levelIDs' => $levelIDs,
+                ':difficulty' => $difficulty,
+                ':original' => $original,
+                ':unlisted' => $unlisted,
+                ':updatedAt' => $now,
+                ':listID' => $listID,
+                ':accountID' => $accountID,
+            ]);
             return $query->rowCount() > 0 ? $listID : 0;
         }
-        $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_level_lists') . ' (accountID, userID, listName, listDesc, levelIDs, reward, unlisted, createdAt, updatedAt) VALUES (:accountID, :userID, :name, :description, :levelIDs, :reward, :unlisted, :createdAt, :updatedAt)');
-        $query->execute([':accountID' => $accountID, ':userID' => $userID, ':name' => $name, ':description' => $description, ':levelIDs' => $levelIDs, ':reward' => $reward, ':unlisted' => $unlisted, ':createdAt' => $now, ':updatedAt' => $now]);
+        $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_level_lists') . ' (accountID, userID, listName, listDesc, listVersion, levelIDs, difficulty, original, unlisted, createdAt, updatedAt) VALUES (:accountID, :userID, :name, :description, :listVersion, :levelIDs, :difficulty, :original, :unlisted, :createdAt, :updatedAt)');
+        $query->execute([
+            ':accountID' => $accountID,
+            ':userID' => $userID,
+            ':name' => $name,
+            ':description' => $description,
+            ':listVersion' => $listVersion,
+            ':levelIDs' => $levelIDs,
+            ':difficulty' => $difficulty,
+            ':original' => $original,
+            ':unlisted' => $unlisted,
+            ':createdAt' => $now,
+            ':updatedAt' => $now,
+        ]);
         return (int) $this->db->lastInsertId();
     }
 
@@ -144,31 +176,66 @@ final class ProgressRepository
         return $query->rowCount() > 0;
     }
 
-    /** @return array{rows:array<int,array<string,mixed>>,total:int} */
-    public function lists(string $search, int $page, int $type, int $accountID): array
+    /** @param array<int,int> $ownerIDs @return array{rows:array<int,array<string,mixed>>,total:int} */
+    public function lists(string $search, int $page, int $type, int $viewerAccountID, array $ownerIDs = []): array
     {
         $offset = max(0, $page) * 10;
-        $where = ['(unlisted = 0 OR accountID = :accountID)'];
-        $params = [':accountID' => $accountID];
-        if ($search !== '') {
+        $where = ['(l.unlisted = 0 OR l.accountID = :viewerAccountID)'];
+        $params = [':viewerAccountID' => $viewerAccountID];
+
+        if ($type === 0 && $search !== '') {
             if (ctype_digit($search)) {
-                $where[] = 'listID = :listID';
+                $where = ['l.listID = :listID', '(l.unlisted = 0 OR l.accountID = :viewerAccountID)'];
                 $params[':listID'] = (int) $search;
             } else {
-                $where[] = 'listName LIKE :search';
+                $where[] = 'l.listName LIKE :search';
                 $params[':search'] = '%' . $search . '%';
             }
+        } elseif ($type === 3) {
+            $where[] = 'l.createdAt > :trendingAfter';
+            $params[':trendingAfter'] = time() - 604800;
+        } elseif ($type === 5) {
+            if (!ctype_digit($search) || (int) $search <= 0) {
+                return ['rows' => [], 'total' => 0];
+            }
+            $where[] = 'l.accountID = :ownerAccountID';
+            $params[':ownerAccountID'] = (int) $search;
+        } elseif ($type === 6) {
+            $where[] = 'l.starStars > 0';
+            $where[] = 'l.starFeatured > 0';
+        } elseif ($type === 11) {
+            $where[] = 'l.starStars > 0';
+        } elseif (in_array($type, [12, 13], true)) {
+            $ownerIDs = array_values(array_unique(array_filter(array_map('intval', $ownerIDs), static fn(int $id): bool => $id > 0)));
+            if ($ownerIDs === []) {
+                return ['rows' => [], 'total' => 0];
+            }
+            $ownerPlaceholders = [];
+            foreach ($ownerIDs as $index => $ownerID) {
+                $key = ':owner' . $index;
+                $ownerPlaceholders[] = $key;
+                $params[$key] = $ownerID;
+            }
+            $where[] = 'l.accountID IN (' . implode(',', $ownerPlaceholders) . ')';
         }
-        if ($type === 5 && $accountID > 0) {
-            $where[] = 'accountID = :owner';
-            $params[':owner'] = $accountID;
-        }
+
         $whereSql = implode(' AND ', $where);
-        $count = $this->db->prepare('SELECT COUNT(*) FROM ' . $this->tables->get('core_level_lists') . ' WHERE ' . $whereSql);
+        $count = $this->db->prepare('SELECT COUNT(*) FROM ' . $this->tables->get('core_level_lists') . ' l WHERE ' . $whereSql);
         $count->execute($params);
         $total = (int) $count->fetchColumn();
-        $order = $type === 1 ? 'downloads DESC, listID DESC' : ($type === 2 ? 'likes DESC, listID DESC' : 'listID DESC');
-        $query = $this->db->prepare('SELECT listID, accountID, userID, listName, listDesc, levelIDs, downloads, likes, reward, unlisted, createdAt, updatedAt FROM ' . $this->tables->get('core_level_lists') . ' WHERE ' . $whereSql . ' ORDER BY ' . $order . ' LIMIT 10 OFFSET ' . $offset);
+
+        $order = match ($type) {
+            0, 2 => 'l.likes DESC, l.listID DESC',
+            1, 3, 6, 11 => 'l.downloads DESC, l.listID DESC',
+            4, 5, 12, 13 => 'l.updatedAt DESC, l.listID DESC',
+            default => 'l.listID DESC',
+        };
+        $query = $this->db->prepare(
+            'SELECT l.listID, l.accountID, l.userID, l.listName, l.listDesc, l.listVersion, l.levelIDs, l.difficulty, l.original, l.downloads, l.likes, l.starFeatured, l.starStars, l.countForReward, l.unlisted, l.createdAt, l.updatedAt, '
+            . 'u.userName, u.extID, u.icon, u.color1, u.color2, u.iconType, u.special '
+            . 'FROM ' . $this->tables->get('core_level_lists') . ' l LEFT JOIN ' . $this->tables->get('users') . ' u ON u.userID = l.userID '
+            . 'WHERE ' . $whereSql . ' ORDER BY ' . $order . ' LIMIT 10 OFFSET ' . $offset
+        );
         $query->execute($params);
         return ['rows' => $query->fetchAll(), 'total' => $total];
     }

@@ -7,6 +7,7 @@ namespace NightCore\Core;
 use NightCore\Domain\Accounts\AccountRepository;
 use NightCore\Domain\Accounts\AccountService;
 use NightCore\Domain\Accounts\AuthRateLimiter;
+use NightCore\Domain\Content\CommentAccessPolicy;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
 use NightCore\Domain\Levels\LevelAccessPolicy;
@@ -153,7 +154,8 @@ final class Application
             $this->contentRepository,
             $this->accountRepository,
             $this->authenticator(),
-            $this->progressRepository
+            $this->progressRepository,
+            new CommentAccessPolicy($this->db, $this->tables, $this->adminAccountIDs())
         );
     }
 

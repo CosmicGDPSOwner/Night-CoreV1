@@ -9,8 +9,11 @@ use RuntimeException;
 
 final class MigrationRunner
 {
+    private SchemaInspector $schema;
+
     public function __construct(private PDO $db, private TableNames $tables)
     {
+        $this->schema = new SchemaInspector($db, $tables);
     }
 
     /** @return list<string> */
@@ -33,6 +36,7 @@ final class MigrationRunner
                 throw new RuntimeException('Unable to read migration: ' . $name);
             }
 
+            $this->applyDirectives($sql);
             $sql = str_replace('{{prefix}}', $this->tables->prefix(), $sql);
             foreach ($this->splitStatements($sql) as $statement) {
                 $this->db->exec($statement);
@@ -64,6 +68,30 @@ final class MigrationRunner
         );
         $query->execute([':migration' => $name]);
         return (int) $query->fetchColumn() > 0;
+    }
+
+    private function applyDirectives(string $sql): void
+    {
+        preg_match_all(
+            '/^\s*--\s*@ensure-column\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_]+)\s+(.+?)\s*$/m',
+            $sql,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        foreach ($matches as $match) {
+            $table = $match[1];
+            $column = $match[2];
+            $definition = trim($match[3]);
+
+            if ($definition === '' || $this->schema->columnExists($table, $column)) {
+                continue;
+            }
+
+            $this->db->exec(
+                'ALTER TABLE ' . $this->tables->get($table) . ' ADD COLUMN `' . $column . '` ' . $definition
+            );
+        }
     }
 
     /** @return list<string> */

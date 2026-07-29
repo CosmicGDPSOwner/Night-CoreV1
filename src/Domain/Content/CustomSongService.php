@@ -116,13 +116,14 @@ final class CustomSongService
         for ($attempt = 0; $attempt < 1000; $attempt++) {
             $songID = $this->content->reserveLocalSong($originalName, time());
             if ($songID > self::MAX_LOCAL_SONG_ID) {
-                $this->content->deleteLocalSongRows($songID);
                 throw new RuntimeException('The local custom-song ID range is exhausted.');
             }
             if ($this->content->findSong($songID) === null) {
                 return $songID;
             }
-            $this->content->deleteLocalSongRows($songID);
+            // Never delete the matching core_songs row here: it may belong to an
+            // imported/external catalog. Leaving this empty reservation is harmless;
+            // AUTO_INCREMENT advances and the next attempt gets a new local ID.
         }
         throw new RuntimeException('Unable to allocate a collision-free custom song ID.');
     }

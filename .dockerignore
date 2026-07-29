@@ -1,0 +1,19 @@
+.git
+.github
+.env
+.env.*
+
+# Runtime data must never be baked into an image.
+data/levels/*
+storage/logs/*
+storage/cache/*
+
+# Local/editor files.
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+
+# Local dependency/build output when present.
+vendor
+node_modules

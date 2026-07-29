@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 use NightCore\Core\Application;
 use NightCore\Core\Config;
+use NightCore\Core\DeploymentInspector;
 use NightCore\Core\MigrationRunner;
 
 $root = dirname(__DIR__);
@@ -13,18 +14,62 @@ Config::loadEnv($root . '/.env');
 
 $command = $argv[1] ?? 'help';
 
+$printHelp = static function (): void {
+    echo "Night Core V1\n\n";
+    echo "Commands:\n";
+    echo "  php bin/nightcore self-test   Run DB-free core tests\n";
+    echo "  php bin/nightcore install     Prepare storage, migrate and run deployment checks\n";
+    echo "  php bin/nightcore doctor      Check production readiness\n";
+    echo "  php bin/nightcore migrate     Apply pending SQL migrations\n";
+};
+
+$runMigrations = static function (Application $app) use ($root): array {
+    $runner = new MigrationRunner($app->db(), $app->tables());
+    return $runner->migrate($root . '/migrations');
+};
+
+$printDoctor = static function (Application $app) use ($root): bool {
+    echo 'Night Core V1 doctor' . PHP_EOL;
+    echo 'PHP: ' . PHP_VERSION . PHP_EOL;
+    echo 'Environment: ' . (Config::get('APP_ENV', 'development') ?? 'development') . PHP_EOL;
+    echo 'Server: ' . $app->serverName() . PHP_EOL;
+    echo 'Profile: ' . $app->profile() . PHP_EOL;
+    echo 'Table prefix: ' . ($app->tables()->prefix() === '' ? '(none)' : $app->tables()->prefix()) . PHP_EOL;
+
+    $checks = DeploymentInspector::inspect($app, $root);
+    foreach ($checks as $check) {
+        $status = $check['ok'] ? 'OK' : ($check['critical'] ? 'FAIL' : 'WARN');
+        echo sprintf('[%s] %s: %s', $status, $check['label'], $check['detail']) . PHP_EOL;
+    }
+
+    return DeploymentInspector::allCriticalOk($checks);
+};
+
 try {
     if ($command === 'self-test') {
         require $root . '/tests/selftest.php';
         exit(0);
     }
 
+    if ($command === 'help') {
+        $printHelp();
+        exit(0);
+    }
+
+    if (!in_array($command, ['install', 'doctor', 'migrate'], true)) {
+        $printHelp();
+        exit(1);
+    }
+
+    if ($command === 'install' && !is_file($root . '/.env')) {
+        throw new RuntimeException('Missing .env. Copy .env.production.example to .env and configure it first.');
+    }
+
     /** @var Application $app */
     $app = Application::boot();
 
     if ($command === 'migrate') {
-        $runner = new MigrationRunner($app->db(), $app->tables());
-        $applied = $runner->migrate($root . '/migrations');
+        $applied = $runMigrations($app);
         if ($applied === []) {
             echo "No pending migrations.\n";
         } else {
@@ -35,32 +80,25 @@ try {
         exit(0);
     }
 
-    if ($command === 'doctor') {
-        echo 'Night Core V1 doctor' . PHP_EOL;
-        echo 'PHP: ' . PHP_VERSION . PHP_EOL;
-        echo 'Server: ' . $app->serverName() . PHP_EOL;
-        echo 'Profile: ' . $app->profile() . PHP_EOL;
-        echo 'Table prefix: ' . ($app->tables()->prefix() === '' ? '(none)' : $app->tables()->prefix()) . PHP_EOL;
-        echo 'Database: OK' . PHP_EOL;
+    if ($command === 'install') {
+        $storage = DeploymentInspector::ensureLevelStorage($root);
+        echo 'Level storage: ' . $storage . PHP_EOL;
 
-        $required = ['accounts', 'users'];
-        $ok = true;
-        foreach ($required as $table) {
-            $exists = $app->schema()->tableExists($table);
-            echo $table . ': ' . ($exists ? 'OK' : 'MISSING') . PHP_EOL;
-            $ok = $ok && $exists;
+        $applied = $runMigrations($app);
+        if ($applied === []) {
+            echo "Migrations: already current.\n";
+        } else {
+            foreach ($applied as $migration) {
+                echo "Applied: {$migration}\n";
+            }
         }
 
-        echo 'core_auth_attempts: ' . ($app->schema()->tableExists('core_auth_attempts') ? 'OK' : 'optional/missing') . PHP_EOL;
+        $ok = $printDoctor($app);
+        echo $ok ? "Installation checks: OK\n" : "Installation checks: FAILED\n";
         exit($ok ? 0 : 2);
     }
 
-    echo "Night Core V1\n\n";
-    echo "Commands:\n";
-    echo "  php bin/nightcore self-test   Run DB-free core tests\n";
-    echo "  php bin/nightcore doctor      Check configuration and schema\n";
-    echo "  php bin/nightcore migrate     Apply pending SQL migrations\n";
-    exit($command === 'help' ? 0 : 1);
+    exit($printDoctor($app) ? 0 : 2);
 } catch (Throwable $e) {
     fwrite(STDERR, 'Night Core error: ' . $e->getMessage() . PHP_EOL);
     exit(1);

@@ -18,6 +18,7 @@ use NightCore\Domain\Moderation\ModerationService;
 use NightCore\Domain\Profiles\ProfileContextRepository;
 use NightCore\Domain\Profiles\ProfileRepository;
 use NightCore\Domain\Profiles\ProfileService;
+use NightCore\Domain\Progress\ListAudienceResolver;
 use NightCore\Domain\Progress\ProgressRepository;
 use NightCore\Domain\Progress\ProgressService;
 use NightCore\Domain\Social\SocialRepository;
@@ -156,6 +157,7 @@ final class Application
             $this->progressRepository,
             $this->accountRepository,
             $this->authenticator(),
+            new ListAudienceResolver($this->db, $this->tables),
             max(1024, Config::getInt('SAVE_MAX_BYTES', 16777216))
         );
     }

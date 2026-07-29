@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NightCore\Domain\Content;
 
 use NightCore\Domain\Accounts\AccountRepository;
+use NightCore\Domain\Progress\ProgressRepository;
 use NightCore\Security\AccountAuthenticator;
 
 final class ContentService
@@ -12,7 +13,8 @@ final class ContentService
     public function __construct(
         private ContentRepository $content,
         private AccountRepository $accounts,
-        private AccountAuthenticator $authenticator
+        private AccountAuthenticator $authenticator,
+        private ProgressRepository $progress
     ) {
     }
 
@@ -62,7 +64,11 @@ final class ContentService
             $comment = base64_encode($comment);
         }
         $userID = $this->accounts->ensureUser($accountID, (string) $account['userName']);
-        $this->content->addComment($accountID, $userID, (string) $account['userName'], 0, $levelID, $comment, max(0, min(100, $percent)));
+        $percent = max(0, min(100, $percent));
+        $this->content->addComment($accountID, $userID, (string) $account['userName'], 0, $levelID, $comment, $percent);
+        if ($percent > 0) {
+            $this->progress->upsertLevelScore($accountID, $userID, $levelID, $percent, 0, 0, 0);
+        }
         return '1';
     }
 

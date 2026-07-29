@@ -196,8 +196,8 @@ final class ContentService
             if ($binaryVersion > 31) {
                 $badge = $this->staffAccess?->nativeBadgeLevel($extID) ?? 0;
                 $color = $badge > 0 ? ($this->staffAccess?->nativeCommentColor($extID) ?? '') : '';
-                $moderation = '~11~' . $badge . ($badge > 0 && $color !== '' ? '~12~' . $color : '');
-                $parts[] = '11~0' . $moderation . ':1~' . $this->field((string) $row['userName'], 20)
+                $moderation = '11~' . $badge . ($badge > 0 && $color !== '' ? '~12~' . $color : '');
+                $parts[] = $moderation . ':1~' . $this->field((string) $row['userName'], 20)
                     . '~7~1~9~' . (int) ($row['icon'] ?? 0)
                     . '~10~' . (int) ($row['color1'] ?? 0)
                     . '~11~' . (int) ($row['color2'] ?? 0)

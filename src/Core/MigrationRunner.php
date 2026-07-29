@@ -84,7 +84,12 @@ final class MigrationRunner
             $column = $match[2];
             $definition = trim($match[3]);
 
-            if ($definition === '' || $this->schema->columnExists($table, $column)) {
+            if (
+                $definition === '' ||
+                !$this->schema->tableExists($table) ||
+                !$this->isAllowedColumnDefinition($definition) ||
+                $this->schema->columnExists($table, $column)
+            ) {
                 continue;
             }
 
@@ -92,6 +97,14 @@ final class MigrationRunner
                 'ALTER TABLE ' . $this->tables->get($table) . ' ADD COLUMN `' . $column . '` ' . $definition
             );
         }
+    }
+
+    private function isAllowedColumnDefinition(string $definition): bool
+    {
+        return (bool) preg_match(
+            '/^(?:TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|DECIMAL|NUMERIC|FLOAT|DOUBLE|REAL|BIT|BOOLEAN|BOOL|CHAR|VARCHAR|TINYTEXT|TEXT|MEDIUMTEXT|LONGTEXT|BINARY|VARBINARY|TINYBLOB|BLOB|MEDIUMBLOB|LONGBLOB|DATE|DATETIME|TIMESTAMP|TIME|YEAR|JSON|ENUM|SET)(?:\b|\()/i',
+            $definition
+        );
     }
 
     /** @return list<string> */

@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS `{{prefix}}core_reports` (
 CREATE TABLE IF NOT EXISTS `{{prefix}}core_friendships` (
     `accountLow` INT UNSIGNED NOT NULL,
     `accountHigh` INT UNSIGNED NOT NULL,
+    `newForLow` TINYINT NOT NULL DEFAULT 0,
+    `newForHigh` TINYINT NOT NULL DEFAULT 0,
     `createdAt` BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (`accountLow`, `accountHigh`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

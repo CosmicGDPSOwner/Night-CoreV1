@@ -6,6 +6,9 @@ namespace NightCore\Core;
 
 final class Config
 {
+    /** @var array<string,string> */
+    private static array $loaded = [];
+
     public static function loadEnv(string $path): void
     {
         if (!is_file($path)) {
@@ -26,7 +29,7 @@ final class Config
             [$key, $value] = explode('=', $line, 2);
             $key = trim($key);
             $value = trim($value);
-            if ($key === '' || getenv($key) !== false) {
+            if ($key === '' || self::runtimeValue($key) !== null) {
                 continue;
             }
 
@@ -38,15 +41,21 @@ final class Config
                 }
             }
 
-            putenv($key . '=' . $value);
+            self::$loaded[$key] = $value;
             $_ENV[$key] = $value;
+
+            // Shared hosts may disable putenv()/getenv(). Keep the in-process
+            // fallback above authoritative when those functions are unavailable.
+            if (function_exists('putenv')) {
+                putenv($key . '=' . $value);
+            }
         }
     }
 
     public static function get(string $key, ?string $default = null): ?string
     {
-        $value = getenv($key);
-        return $value === false ? $default : $value;
+        $value = self::runtimeValue($key);
+        return $value ?? $default;
     }
 
     public static function getBool(string $key, bool $default = false): bool
@@ -78,5 +87,21 @@ final class Config
             'password' => self::get('DB_PASS', '') ?? '',
             'charset' => self::get('DB_CHARSET', 'utf8mb4') ?? 'utf8mb4',
         ];
+    }
+
+    private static function runtimeValue(string $key): ?string
+    {
+        if (function_exists('getenv')) {
+            $value = getenv($key);
+            if ($value !== false) {
+                return (string) $value;
+            }
+        }
+
+        if (array_key_exists($key, $_ENV) && is_scalar($_ENV[$key])) {
+            return (string) $_ENV[$key];
+        }
+
+        return self::$loaded[$key] ?? null;
     }
 }

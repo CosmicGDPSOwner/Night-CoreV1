@@ -18,6 +18,7 @@ Current migrations:
 
 - `0001_accounts.sql` — minimal account/users tables for a fresh installation plus the optional authentication-attempt table.
 - `0002_profiles.sql` — GD 2.2 user stats, cosmetics and account profile settings required by the profile endpoints.
+- `0003_levels.sql` — universal level metadata plus hashed-IP download deduplication for upload/download/search endpoints.
 
 Existing Cvolton-compatible databases are not recreated: `CREATE TABLE IF NOT EXISTS` leaves compatible existing tables in place. Always run `php bin/nightcore doctor` against a disposable copy before applying migrations to a migrated GDPS.
 

@@ -7,6 +7,9 @@ namespace NightCore\Core;
 use NightCore\Domain\Accounts\AccountRepository;
 use NightCore\Domain\Accounts\AccountService;
 use NightCore\Domain\Accounts\AuthRateLimiter;
+use NightCore\Domain\Levels\LevelRepository;
+use NightCore\Domain\Levels\LevelService;
+use NightCore\Domain\Levels\LevelStorage;
 use NightCore\Domain\Profiles\ProfileRepository;
 use NightCore\Domain\Profiles\ProfileService;
 use NightCore\Security\AccountAuthenticator;
@@ -20,6 +23,7 @@ final class Application
     private AccountRepository $accountRepository;
     private AuthRateLimiter $rateLimiter;
     private ProfileRepository $profileRepository;
+    private LevelRepository $levelRepository;
 
     public function __construct(private PDO $db, private TableNames $tables)
     {
@@ -34,6 +38,7 @@ final class Application
             Config::getInt('AUTH_WINDOW_SECONDS', 3600)
         );
         $this->profileRepository = new ProfileRepository($db, $tables);
+        $this->levelRepository = new LevelRepository($db, $tables);
     }
 
     public static function boot(): self
@@ -80,6 +85,26 @@ final class Application
             $this->profileRepository,
             $this->accountRepository,
             $this->authenticator()
+        );
+    }
+
+    public function levels(): LevelService
+    {
+        $defaultStorage = dirname(__DIR__, 2) . '/data/levels';
+        $storagePath = trim(Config::get('LEVEL_STORAGE_PATH', '') ?? '');
+        if ($storagePath === '') {
+            $storagePath = $defaultStorage;
+        }
+
+        return new LevelService(
+            $this->levelRepository,
+            new LevelStorage(
+                $storagePath,
+                max(1, Config::getInt('LEVEL_MAX_BYTES', 8388608))
+            ),
+            $this->accountRepository,
+            $this->authenticator(),
+            max(0, Config::getInt('LEVEL_UPLOAD_COOLDOWN_SECONDS', 60))
         );
     }
 

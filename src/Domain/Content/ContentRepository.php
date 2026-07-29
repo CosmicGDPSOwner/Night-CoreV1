@@ -22,6 +22,51 @@ final class ContentRepository
         return $row === false ? null : $row;
     }
 
+    /** @param array<string,mixed> $song */
+    public function upsertSong(array $song): void
+    {
+        $query = $this->db->prepare(
+            'INSERT INTO ' . $this->tables->get('core_songs') . ' (songID, name, authorID, authorName, size, download, isDisabled, createdAt) '
+            . 'VALUES (:songID, :name, :authorID, :authorName, :size, :download, :isDisabled, :createdAt) '
+            . 'ON DUPLICATE KEY UPDATE name = VALUES(name), authorID = VALUES(authorID), authorName = VALUES(authorName), '
+            . 'size = VALUES(size), download = VALUES(download), createdAt = VALUES(createdAt)'
+        );
+        $query->execute([
+            ':songID' => (int) $song['songID'],
+            ':name' => (string) $song['name'],
+            ':authorID' => (int) $song['authorID'],
+            ':authorName' => (string) $song['authorName'],
+            ':size' => (string) $song['size'],
+            ':download' => (string) $song['download'],
+            ':isDisabled' => (int) ($song['isDisabled'] ?? 0),
+            ':createdAt' => (int) ($song['createdAt'] ?? time()),
+        ]);
+    }
+
+    public function canAttemptSongFetch(int $songID, int $now): bool
+    {
+        $query = $this->db->prepare('SELECT retryAfter FROM ' . $this->tables->get('core_song_fetch_failures') . ' WHERE songID = :songID LIMIT 1');
+        $query->execute([':songID' => $songID]);
+        $retryAfter = $query->fetchColumn();
+        return $retryAfter === false || (int) $retryAfter <= $now;
+    }
+
+    public function recordSongFetchFailure(int $songID, int $retryAfter, int $now): void
+    {
+        $query = $this->db->prepare(
+            'INSERT INTO ' . $this->tables->get('core_song_fetch_failures') . ' (songID, retryAfter, attempts, updatedAt) '
+            . 'VALUES (:songID, :retryAfter, 1, :updatedAt) '
+            . 'ON DUPLICATE KEY UPDATE retryAfter = VALUES(retryAfter), attempts = attempts + 1, updatedAt = VALUES(updatedAt)'
+        );
+        $query->execute([':songID' => $songID, ':retryAfter' => $retryAfter, ':updatedAt' => $now]);
+    }
+
+    public function clearSongFetchFailure(int $songID): void
+    {
+        $query = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_song_fetch_failures') . ' WHERE songID = :songID');
+        $query->execute([':songID' => $songID]);
+    }
+
     public function addComment(int $accountID, int $userID, string $userName, int $targetType, int $targetID, string $comment, int $percent): int
     {
         $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_comments') . ' (accountID, userID, userName, targetType, targetID, comment, percent, createdAt) VALUES (:accountID, :userID, :userName, :targetType, :targetID, :comment, :percent, :createdAt)');

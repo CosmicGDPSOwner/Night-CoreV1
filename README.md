@@ -39,8 +39,8 @@ Night Core V1 is a modified/derived project and preserves the applicable GPLv3 r
 - login rate limiting;
 - optional legacy UDID level ownership migration;
 - automatic Newgrounds custom-song lookup and local caching;
-- owner-managed server-hosted MP3 custom-song library with generated Song IDs;
-- owner media dashboard for songs, Ogg SFX and runtime upload limits;
+- server-hosted MP3 custom-song library with generated Song IDs;
+- optional public media dashboard for MP3 songs and Ogg SFX with owner-only server-local limits;
 - separate server-hosted SFX storage/download library pending final stock-client request-path validation;
 - DB-free self-test plus MariaDB integration/baseline CI;
 - PHP 8.1/8.2/8.3 CI checks.
@@ -88,18 +88,18 @@ See `docs/STAGING.md` for the complete rollout and promotion gate.
 
 ## Media dashboard
 
-`/mediaAdmin.php` is the preferred owner interface for local audio. It can upload/delete MP3 songs and Ogg SFX, list the local libraries, and change the per-file song/SFX upload limits without editing `.env`.
+`/mediaAdmin.php` is an optional public media library/uploader. It accepts MP3 songs and Ogg SFX without an admin token when the owner enables `public_uploads` in the private, Git-ignored `config/media.php` file.
 
-Runtime limits are stored in MariaDB. This is useful for changes such as lowering the song limit from 25 MiB to 10 MiB immediately. PHP/Nginx/provider limits still form an upper infrastructure ceiling.
+Visitors can see the active limits but cannot change limits or delete media. The owner sets `song_max_mib` and `sfx_max_mib` in `config/media.php`; PHP/Nginx/provider limits still form an upper infrastructure ceiling.
 
-See `docs/MEDIA_DASHBOARD.md` for setup, security and the current SFX stock-client compatibility boundary.
+See `docs/MEDIA_DASHBOARD.md` for setup, permissions, public-upload security and the current SFX stock-client compatibility boundary.
 
 ## Custom songs
 
 Night Core has two independent custom-song paths:
 
 - external Newgrounds/Boomlings lookup for unknown IDs when the upstream is reachable;
-- a server-hosted local MP3 library managed through `/mediaAdmin.php` or the legacy token-protected `/songAdmin.php` uploader.
+- a server-hosted local MP3 library managed through the public media page when enabled or the legacy token-protected `/songAdmin.php` owner uploader.
 
 New local uploads use a configurable seven-digit Song ID range, `2000000..8999999` by default, and are served by Night Core itself. Older high-ID local songs remain valid but are not reused for new allocations.
 

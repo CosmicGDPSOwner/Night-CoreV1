@@ -47,6 +47,11 @@ try {
     $storage = DeploymentInspector::ensureLevelStorage($root);
     echo 'Level storage: OK' . PHP_EOL;
 
+    if (trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '') {
+        DeploymentInspector::ensureCustomSongStorage($root);
+        echo 'Custom song storage: OK' . PHP_EOL;
+    }
+
     $runner = new MigrationRunner($app->db(), $app->tables());
     $applied = $runner->migrate($root . '/migrations');
     if ($applied === []) {

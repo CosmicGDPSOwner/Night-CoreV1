@@ -43,6 +43,9 @@ jobs:
       CORE_TABLE_PREFIX: bt_
       ACCOUNT_PREACTIVATE: 1
       AUTH_MAX_ATTEMPTS: 0
+      NEWGROUNDS_FETCH_ENABLED: 0
+      CUSTOM_SONG_STORAGE_PATH: /tmp/nightcore-baseline-songs
+      CUSTOM_SONG_MAX_BYTES: 26214400
       LEVEL_STORAGE_PATH: /tmp/nightcore-baseline-levels
       LEVEL_MAX_BYTES: 8388608
       LEVEL_UPLOAD_COOLDOWN_SECONDS: 0
@@ -71,6 +74,9 @@ jobs:
 
       - name: Bootstrap MariaDB integration
         run: php tests/integration.php
+
+      - name: Custom song library
+        run: php tests/custom_songs.php
 
       - name: End-to-end universal baseline
         run: |

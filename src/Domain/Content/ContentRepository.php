@@ -29,7 +29,7 @@ final class ContentRepository
             'INSERT INTO ' . $this->tables->get('core_songs') . ' (songID, name, authorID, authorName, size, download, isDisabled, createdAt) '
             . 'VALUES (:songID, :name, :authorID, :authorName, :size, :download, :isDisabled, :createdAt) '
             . 'ON DUPLICATE KEY UPDATE name = VALUES(name), authorID = VALUES(authorID), authorName = VALUES(authorName), '
-            . 'size = VALUES(size), download = VALUES(download), createdAt = VALUES(createdAt)'
+            . 'size = VALUES(size), download = VALUES(download), isDisabled = VALUES(isDisabled), createdAt = VALUES(createdAt)'
         );
         $query->execute([
             ':songID' => (int) $song['songID'],
@@ -41,6 +41,74 @@ final class ContentRepository
             ':isDisabled' => (int) ($song['isDisabled'] ?? 0),
             ':createdAt' => (int) ($song['createdAt'] ?? time()),
         ]);
+    }
+
+    public function reserveLocalSong(string $originalName, int $uploadedAt): int
+    {
+        $query = $this->db->prepare(
+            'INSERT INTO ' . $this->tables->get('core_local_songs') . ' (originalName, sha256, bytes, uploadedAt) '
+            . 'VALUES (:originalName, :sha256, 0, :uploadedAt)'
+        );
+        $query->execute([
+            ':originalName' => $originalName,
+            ':sha256' => str_repeat('0', 64),
+            ':uploadedAt' => $uploadedAt,
+        ]);
+        return (int) $this->db->lastInsertId();
+    }
+
+    public function finalizeLocalSong(int $songID, string $sha256, int $bytes): void
+    {
+        $query = $this->db->prepare(
+            'UPDATE ' . $this->tables->get('core_local_songs') . ' SET sha256 = :sha256, bytes = :bytes WHERE songID = :songID'
+        );
+        $query->execute([':sha256' => $sha256, ':bytes' => $bytes, ':songID' => $songID]);
+        if ($query->rowCount() === 0) {
+            throw new \RuntimeException('Reserved local song row disappeared before finalization.');
+        }
+    }
+
+    public function findLocalSong(int $songID): ?array
+    {
+        $query = $this->db->prepare(
+            'SELECT l.songID, l.originalName, l.sha256, l.bytes, l.uploadedAt, s.name, s.authorName, s.size, s.download, s.isDisabled '
+            . 'FROM ' . $this->tables->get('core_local_songs') . ' l '
+            . 'LEFT JOIN ' . $this->tables->get('core_songs') . ' s ON s.songID = l.songID '
+            . 'WHERE l.songID = :songID LIMIT 1'
+        );
+        $query->execute([':songID' => $songID]);
+        $row = $query->fetch();
+        return $row === false ? null : $row;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function listLocalSongs(int $limit = 100): array
+    {
+        $limit = max(1, min(500, $limit));
+        $query = $this->db->query(
+            'SELECT l.songID, l.originalName, l.sha256, l.bytes, l.uploadedAt, s.name, s.authorName, s.size, s.download, s.isDisabled '
+            . 'FROM ' . $this->tables->get('core_local_songs') . ' l '
+            . 'LEFT JOIN ' . $this->tables->get('core_songs') . ' s ON s.songID = l.songID '
+            . 'ORDER BY l.songID DESC LIMIT ' . $limit
+        );
+        return $query->fetchAll();
+    }
+
+    public function deleteLocalSongRows(int $songID): void
+    {
+        $this->db->beginTransaction();
+        try {
+            $song = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_songs') . ' WHERE songID = :songID');
+            $song->execute([':songID' => $songID]);
+            $local = $this->db->prepare('DELETE FROM ' . $this->tables->get('core_local_songs') . ' WHERE songID = :songID');
+            $local->execute([':songID' => $songID]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
     }
 
     public function canAttemptSongFetch(int $songID, int $now): bool

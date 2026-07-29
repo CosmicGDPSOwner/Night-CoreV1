@@ -10,6 +10,8 @@ use NightCore\Domain\Accounts\AuthRateLimiter;
 use NightCore\Domain\Content\CommentAccessPolicy;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
+use NightCore\Domain\Content\CustomSongService;
+use NightCore\Domain\Content\CustomSongStorage;
 use NightCore\Domain\Content\NewgroundsSongProvider;
 use NightCore\Domain\Levels\LevelAccessPolicy;
 use NightCore\Domain\Levels\LevelLifecycleRepository;
@@ -163,6 +165,11 @@ final class Application
         );
     }
 
+    public function customSongs(): CustomSongService
+    {
+        return new CustomSongService($this->contentRepository, $this->customSongStorage());
+    }
+
     public function social(): SocialService
     {
         return new SocialService($this->socialRepository, $this->accountRepository, $this->authenticator());
@@ -223,6 +230,16 @@ final class Application
             $storagePath = $defaultStorage;
         }
         return new LevelStorage($storagePath, max(1, Config::getInt('LEVEL_MAX_BYTES', 8388608)));
+    }
+
+    private function customSongStorage(): CustomSongStorage
+    {
+        $defaultStorage = dirname(__DIR__, 2) . '/data/songs';
+        $storagePath = trim(Config::get('CUSTOM_SONG_STORAGE_PATH', '') ?? '');
+        if ($storagePath === '') {
+            $storagePath = $defaultStorage;
+        }
+        return new CustomSongStorage($storagePath, max(1024, Config::getInt('CUSTOM_SONG_MAX_BYTES', 26214400)));
     }
 
     /** @return array<int,int> */

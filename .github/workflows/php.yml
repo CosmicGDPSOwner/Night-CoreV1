@@ -20,6 +20,8 @@ jobs:
         run: find . -type f -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Core self-test
         run: php bin/nightcore self-test
+      - name: CLI help without database
+        run: php bin/nightcore help
 
   mariadb-integration:
     runs-on: ubuntu-latest
@@ -39,6 +41,8 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     env:
+      APP_ENV: production
+      APP_DEBUG: 0
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_NAME: nightcore_test
@@ -57,3 +61,8 @@ jobs:
           extensions: pdo_mysql
       - name: MariaDB integration
         run: php tests/integration.php
+      - name: Production doctor
+        run: |
+          mkdir -p /tmp/nightcore-levels
+          php bin/nightcore migrate
+          php bin/nightcore doctor

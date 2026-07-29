@@ -9,17 +9,26 @@ use Throwable;
 
 final class CustomSongService
 {
-    private const MAX_LOCAL_SONG_ID = 99999999;
-
     public function __construct(
         private ContentRepository $content,
-        private CustomSongStorage $storage
+        private CustomSongStorage $storage,
+        private CustomSongIdAllocator $ids
     ) {
     }
 
     public function storage(): CustomSongStorage
     {
         return $this->storage;
+    }
+
+    public function minSongID(): int
+    {
+        return $this->ids->minID();
+    }
+
+    public function maxSongID(): int
+    {
+        return $this->ids->maxID();
     }
 
     /** @return array{songID:int,name:string,authorName:string,size:string,download:string,bytes:int,sha256:string} */
@@ -36,7 +45,7 @@ final class CustomSongService
         }
         $publicBaseUrl = $this->publicBaseUrl($publicBaseUrl);
 
-        $songID = $this->reserveAvailableSongId($originalName);
+        $songID = $this->ids->reserve($originalName, time());
         $stored = null;
         try {
             $stored = $this->storage->store($songID, $sourcePath, $originalName);
@@ -109,23 +118,6 @@ final class CustomSongService
         $this->storage->delete($songID);
         $this->content->deleteLocalSongRows($songID);
         return true;
-    }
-
-    private function reserveAvailableSongId(string $originalName): int
-    {
-        for ($attempt = 0; $attempt < 1000; $attempt++) {
-            $songID = $this->content->reserveLocalSong($originalName, time());
-            if ($songID > self::MAX_LOCAL_SONG_ID) {
-                throw new RuntimeException('The local custom-song ID range is exhausted.');
-            }
-            if ($this->content->findSong($songID) === null) {
-                return $songID;
-            }
-            // Never delete the matching core_songs row here: it may belong to an
-            // imported/external catalog. Leaving this empty reservation is harmless;
-            // AUTO_INCREMENT advances and the next attempt gets a new local ID.
-        }
-        throw new RuntimeException('Unable to allocate a collision-free custom song ID.');
     }
 
     private function publicBaseUrl(string $value): string

@@ -30,8 +30,21 @@ $result = null;
 $server = null;
 $pipes = [];
 $log = sys_get_temp_dir() . '/nightcore-custom-song-http.log';
+$legacyHighID = 90000000;
+$localTable = $app->tables()->get('core_local_songs');
 
 try {
+    $seed = $app->db()->prepare(
+        'INSERT IGNORE INTO ' . $localTable . ' (songID, originalName, sha256, bytes, uploadedAt) '
+        . 'VALUES (:songID, :originalName, :sha256, 0, :uploadedAt)'
+    );
+    $seed->execute([
+        ':songID' => $legacyHighID,
+        ':originalName' => 'legacy-high-id.mp3',
+        ':sha256' => str_repeat('0', 64),
+        ':uploadedAt' => time(),
+    ]);
+
     $result = $app->customSongs()->import(
         $temp,
         'nightcore-test.mp3',
@@ -40,7 +53,8 @@ try {
         'http://127.0.0.1:8100'
     );
     $songID = (int) $result['songID'];
-    $assert($songID >= 90000000 && $songID <= 99999999, 'local song ID range');
+    $assert($songID >= 2000000 && $songID <= 8999999, 'local song ID range');
+    $assert($songID < $legacyHighID, 'allocator must ignore legacy high-ID rows');
     $assert((int) $result['bytes'] === strlen($payload), 'stored byte count');
     $assert(is_file($app->customSongs()->storage()->path($songID)), 'stored MP3 file');
 
@@ -108,6 +122,11 @@ try {
             $app->customSongs()->delete((int) $result['songID']);
         } catch (Throwable) {
         }
+    }
+    try {
+        $cleanup = $app->db()->prepare('DELETE FROM ' . $localTable . ' WHERE songID = :songID');
+        $cleanup->execute([':songID' => $legacyHighID]);
+    } catch (Throwable) {
     }
 }
 

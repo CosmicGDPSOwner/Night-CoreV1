@@ -5,12 +5,14 @@ Night Core can host custom Geometry Dash songs directly on the GDPS server. This
 ## How it works
 
 1. An administrator uploads an MP3 through `/songAdmin.php`.
-2. Night Core allocates a Song ID in the `90000000..99999999` range.
+2. Night Core allocates a Song ID from a configurable local range. The default is `2000000..8999999` so generated IDs stay seven digits instead of using the former `90000000+` range.
 3. The MP3 is stored outside the public document root.
 4. Song metadata is written to `core_songs`, so the normal `getGJSongInfo.php` and level-search responses already know about the song.
 5. Geometry Dash downloads the MP3 through `/downloadCustomSong.php?songID=<ID>`.
 
 The download endpoint supports normal GET/HEAD requests and single HTTP byte ranges, which makes it suitable for normal media clients without exposing the storage directory itself.
+
+Existing local songs created with older high IDs remain valid and are not renumbered automatically. New uploads use the configured low range.
 
 ## Configuration
 
@@ -19,6 +21,8 @@ Production example:
 ```env
 CUSTOM_SONG_STORAGE_PATH=/var/lib/nightcore/songs
 CUSTOM_SONG_MAX_BYTES=26214400
+CUSTOM_SONG_ID_MIN=2000000
+CUSTOM_SONG_ID_MAX=8999999
 CUSTOM_SONG_PUBLIC_BASE_URL=https://gdps.example.com
 CUSTOM_SONG_ADMIN_TOKEN=CHANGE_ME_LONG_RANDOM_SECRET
 ```
@@ -26,6 +30,8 @@ CUSTOM_SONG_ADMIN_TOKEN=CHANGE_ME_LONG_RANDOM_SECRET
 `CUSTOM_SONG_STORAGE_PATH` should be outside `public/` and writable by the PHP/web-server user.
 
 `CUSTOM_SONG_MAX_BYTES` is the Night Core file-size limit. The default is 25 MiB. PHP `upload_max_filesize`, `post_max_size`, Nginx `client_max_body_size`, Apache limits, or hosting-provider limits may be lower and must also permit the intended upload size.
+
+`CUSTOM_SONG_ID_MIN` and `CUSTOM_SONG_ID_MAX` define the IDs reserved for server-hosted songs. Defaults are `2000000` and `8999999`. Night Core allocates explicitly inside this range, so old rows with higher IDs do not force new uploads back into the old high range. Choose a range that your GDPS reserves for local songs and that does not overlap any external catalog you intentionally import.
 
 `CUSTOM_SONG_PUBLIC_BASE_URL` is the canonical public Night Core origin. It may be left empty: the uploader then derives the scheme/host from the request used to open `/songAdmin.php`. Set it explicitly when the server is behind a reverse proxy, uses several hostnames, or the upload page is accessed through an internal address.
 

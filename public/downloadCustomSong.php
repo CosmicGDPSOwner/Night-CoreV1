@@ -25,7 +25,11 @@ if ($size === false || $size <= 0) {
 }
 
 $etagHash = (string) ($record['sha256'] ?? '');
-$etag = '"' . ($etagHash !== '' ? $etagHash : hash_file('sha256', $path)) . '"';
+if ($etagHash === '') {
+    $computed = hash_file('sha256', $path);
+    $etagHash = is_string($computed) ? $computed : (string) $size;
+}
+$etag = '"' . $etagHash . '"';
 header('Content-Type: audio/mpeg');
 header('Content-Disposition: inline; filename="' . $songID . '.mp3"');
 header('Accept-Ranges: bytes');
@@ -58,11 +62,11 @@ if ($range !== '') {
         $start = max(0, $size - $suffix);
     } else {
         $start = (int) $match[1];
+        if ($match[2] !== '') {
+            $end = min($end, (int) $match[2]);
+        }
     }
 
-    if ($match[2] !== '') {
-        $end = min($end, (int) $match[2]);
-    }
     if ($start < 0 || $start >= $size || $end < $start) {
         http_response_code(416);
         header('Content-Range: bytes */' . $size);
@@ -96,8 +100,5 @@ while ($remaining > 0 && !feof($handle)) {
     }
     echo $chunk;
     $remaining -= strlen($chunk);
-    if (function_exists('fastcgi_finish_request')) {
-        // Do not call it here: it would terminate ranged streaming early.
-    }
 }
 fclose($handle);

@@ -26,17 +26,17 @@ Night Core V1 is a modified/derived project and preserves the applicable GPLv3 r
 
 - reusable configuration and PDO database layer;
 - safe table-prefix handling and schema inspection;
-- migration runner;
-- health/info endpoints;
+- ordered migration runner;
+- production installer and deployment doctor;
+- health and readiness endpoints;
 - fresh-install account schema;
-- `registerGJAccount.php`;
-- `loginGJAccount.php`;
+- account/profile, level, content, social, progress and moderation protocol modules;
+- `registerGJAccount.php` and `loginGJAccount.php` compatibility paths;
 - password + GJP2 hashing compatible with the Cvolton implementation;
-- shared legacy GJP/GJP2 authenticator for future game endpoints;
+- shared legacy GJP/GJP2 authenticator;
 - login rate limiting;
 - optional legacy UDID level ownership migration;
-- CLI `doctor`, `migrate`, and DB-free `self-test`;
-- Docker-based local MariaDB test environment;
+- DB-free self-test plus MariaDB integration/baseline CI;
 - PHP 8.1/8.2/8.3 CI checks.
 
 Both `/accounts/loginGJAccount.php` and `/loginGJAccount.php` compatibility paths are provided, with the same rule for registration.
@@ -52,14 +52,26 @@ docker compose exec web php bin/nightcore doctor
 docker compose exec web php bin/nightcore self-test
 ```
 
-Then open `http://127.0.0.1:8080/health.php`. It should return `ok`.
+Then open `http://127.0.0.1:8080/health.php`.
 
 Detailed test steps are in `docs/TESTING.md`.
 
+## Production deployment
+
+Start from `.env.production.example`, point the web-server document root to `public/`, and run:
+
+```bash
+php bin/nightcore install
+```
+
+Before accepting traffic, `php bin/nightcore doctor` must have no critical failures and `/ready.php` should return HTTP 200 with `ready`.
+
+See `docs/DEPLOYMENT.md` for the deployment and update procedure.
+
 ## Safety
 
-Do **not** point the development build at a production GDPS database. Test against a fresh database or a disposable copy first.
+Do **not** point an untested build at a production GDPS database. Test against a fresh database or a disposable copy first.
 
 ## Next milestone
 
-Expand the universal protocol layer with account/profile endpoints, then port level upload/download/search as separate modules.
+Deploy Night Core V1 to a staging host and validate the full protocol flow with a real Geometry Dash 2.2 client before production traffic is switched over.

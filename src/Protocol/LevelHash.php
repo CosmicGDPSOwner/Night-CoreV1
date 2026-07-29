@@ -22,6 +22,20 @@ final class LevelHash
         return sha1($source . self::SALT);
     }
 
+    /** @param list<array{packID:int,stars:int,coins:int}> $packs */
+    public static function pack(array $packs): string
+    {
+        $source = '';
+        foreach ($packs as $pack) {
+            $id = (string) $pack['packID'];
+            if ($id === '') {
+                continue;
+            }
+            $source .= $id[0] . $id[strlen($id) - 1] . $pack['stars'] . $pack['coins'];
+        }
+        return sha1($source . self::SALT);
+    }
+
     public static function solo(string $levelString): string
     {
         $length = strlen($levelString);

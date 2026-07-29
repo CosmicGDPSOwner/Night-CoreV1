@@ -20,6 +20,7 @@ use NightCore\Domain\Profiles\ProfileContextRepository;
 use NightCore\Domain\Profiles\ProfileRepository;
 use NightCore\Domain\Profiles\ProfileService;
 use NightCore\Domain\Progress\ListAudienceResolver;
+use NightCore\Domain\Progress\ListDownloadTracker;
 use NightCore\Domain\Progress\ProgressRepository;
 use NightCore\Domain\Progress\ProgressService;
 use NightCore\Domain\Social\SocialRepository;
@@ -163,6 +164,11 @@ final class Application
             new ListAudienceResolver($this->db, $this->tables),
             max(1024, Config::getInt('SAVE_MAX_BYTES', 16777216))
         );
+    }
+
+    public function trackListDownload(int $listID, string $ip): bool
+    {
+        return (new ListDownloadTracker($this->db, $this->tables))->incrementOnce($listID, $ip);
     }
 
     public function moderation(): ModerationService

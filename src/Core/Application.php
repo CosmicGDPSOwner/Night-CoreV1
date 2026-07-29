@@ -132,7 +132,12 @@ final class Application
 
     public function content(): ContentService
     {
-        return new ContentService($this->contentRepository, $this->accountRepository, $this->authenticator());
+        return new ContentService(
+            $this->contentRepository,
+            $this->accountRepository,
+            $this->authenticator(),
+            $this->progressRepository
+        );
     }
 
     public function social(): SocialService

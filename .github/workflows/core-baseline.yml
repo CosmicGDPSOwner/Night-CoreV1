@@ -46,6 +46,8 @@ jobs:
       NEWGROUNDS_FETCH_ENABLED: 0
       CUSTOM_SONG_STORAGE_PATH: /tmp/nightcore-baseline-songs
       CUSTOM_SONG_MAX_BYTES: 26214400
+      CUSTOM_SFX_STORAGE_PATH: /tmp/nightcore-baseline-sfx
+      CUSTOM_SFX_MAX_BYTES: 10485760
       LEVEL_STORAGE_PATH: /tmp/nightcore-baseline-levels
       LEVEL_MAX_BYTES: 8388608
       LEVEL_UPLOAD_COOLDOWN_SECONDS: 0
@@ -77,6 +79,9 @@ jobs:
 
       - name: Custom song library
         run: php tests/custom_songs.php
+
+      - name: Media dashboard and SFX library
+        run: php tests/media_dashboard.php
 
       - name: End-to-end universal baseline
         run: |

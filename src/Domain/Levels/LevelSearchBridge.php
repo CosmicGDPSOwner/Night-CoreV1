@@ -125,10 +125,10 @@ final class LevelSearchBridge
     private function friendAccountIDs(int $accountID): array
     {
         $query = $this->db->prepare(
-            'SELECT CASE WHEN accountLow = :me THEN accountHigh ELSE accountLow END AS accountID FROM ' .
-            $this->tables->get('core_friendships') . ' WHERE accountLow = :me OR accountHigh = :me'
+            'SELECT CASE WHEN accountLow = :meCase THEN accountHigh ELSE accountLow END AS accountID FROM ' .
+            $this->tables->get('core_friendships') . ' WHERE accountLow = :meLow OR accountHigh = :meHigh'
         );
-        $query->execute([':me' => $accountID]);
+        $query->execute([':meCase' => $accountID, ':meLow' => $accountID, ':meHigh' => $accountID]);
         return array_map('intval', array_column($query->fetchAll(), 'accountID'));
     }
 

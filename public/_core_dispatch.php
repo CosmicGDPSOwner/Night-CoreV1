@@ -101,6 +101,13 @@ try {
             $accountID, $gjp, $gjp2, $ip, Request::post('messages', Request::post('messageID'))
         ),
 
+        'deleteGJLevelUser20.php' => $app->levelLifecycle()->delete(
+            $accountID, $gjp, $gjp2, $ip, (int) Request::post('levelID')
+        ),
+        'updateGJDesc20.php' => $app->levelLifecycle()->updateDescription(
+            $accountID, $gjp, $gjp2, $ip, (int) Request::post('levelID'), Request::post('levelDesc')
+        ),
+
         'backupGJAccountNew.php' => $app->progress()->backup(
             $accountID, $gjp, $gjp2, $ip, Request::post('saveData'), Request::post('saveData2', Request::post('saveExtra'))
         ),

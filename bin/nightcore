@@ -84,6 +84,11 @@ try {
         $storage = DeploymentInspector::ensureLevelStorage($root);
         echo 'Level storage: ' . $storage . PHP_EOL;
 
+        if (trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '') {
+            $songStorage = DeploymentInspector::ensureCustomSongStorage($root);
+            echo 'Custom song storage: ' . $songStorage . PHP_EOL;
+        }
+
         $applied = $runMigrations($app);
         if ($applied === []) {
             echo "Migrations: already current.\n";

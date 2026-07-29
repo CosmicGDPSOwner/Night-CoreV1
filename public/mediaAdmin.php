@@ -201,7 +201,7 @@ header('Content-Type: text/html; charset=utf-8');
 </section>
 <section class="card wide">
 <h2>Library</h2>
-<div class="row"><div><span class="pill">Songs</span><div class="metric"><?= count($songs) ?></div><small>ID <?= $app->customSongs()->minSongID() ?>–<?= $app->customSongs()->maxSongID() ?></small></div><div><span class="pill">SFX</span><div class="metric"><?= count($sfxRows) ?></div><small>ID <?= $app->customSfx()->minSfxID() ?>–<?= $app->customSfx()->maxSfxID() ?></small></div></div>
+<div class="row"><div><span class="pill">Songs</span><div class="metric"><?= count($songs) ?></div></div><div><span class="pill">SFX</span><div class="metric"><?= count($sfxRows) ?></div></div></div>
 </section>
 <?php if ($publicUploads): ?>
 <section class="card">

@@ -135,7 +135,7 @@ final class ContentService
         $page = max(0, $page);
         $count = max(1, min(50, $count));
         $result = $this->content->commentsForTarget(1, $profileAccountID, $page, $count, false);
-        return $this->formatComments($result, $page, $count, $gameVersion, $binaryVersion, false);
+        return $this->formatAccountComments($result, $page, $count);
     }
 
     public function like(int $accountID, string $gjp, string $gjp2, string $ip, int $itemType, int $itemID, int $value): string
@@ -206,6 +206,29 @@ final class ContentService
             $body .= '#' . implode('|', $users);
         }
         return $body . '#' . $result['total'] . ':' . $offset . ':' . count($result['rows']);
+    }
+
+    /** @param array{rows:array<int,array<string,mixed>>,total:int} $result */
+    private function formatAccountComments(array $result, int $page, int $count): string
+    {
+        if ($result['total'] === 0) {
+            return '#0:0:0';
+        }
+
+        $comments = [];
+        foreach ($result['rows'] as $row) {
+            $comments[] = implode('~', [
+                '2', (string) $row['comment'],
+                '3', (string) (int) $row['userID'],
+                '4', (string) (int) $row['likes'],
+                '5', '0',
+                '7', (string) (int) $row['isSpam'],
+                '9', date('d/m/Y G:i', (int) $row['createdAt']),
+                '6', (string) (int) $row['commentID'],
+            ]);
+        }
+
+        return implode('|', $comments) . '#' . $result['total'] . ':' . ($page * $count) . ':' . $count;
     }
 
     private function field(string $value, int $max): string

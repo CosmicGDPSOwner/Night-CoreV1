@@ -66,6 +66,9 @@ jobs:
       - name: Self-test
         run: php tests/selftest.php
 
+      - name: Account-comment wire format
+        run: php tests/account_comments_wire_format.php
+
       - name: Bootstrap MariaDB integration
         run: php tests/integration.php
 

@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace NightCore\Domain\Levels;
 
 use NightCore\Core\TableNames;
+use NightCore\Domain\Content\NewgroundsSongProvider;
 use PDO;
 
 final class LevelSongProvider
 {
-    public function __construct(private PDO $db, private TableNames $tables)
-    {
+    public function __construct(
+        private PDO $db,
+        private TableNames $tables,
+        private ?NewgroundsSongProvider $externalSongs = null
+    ) {
     }
 
     public function decorate(string $response): string
@@ -37,36 +41,52 @@ final class LevelSongProvider
         );
         $query->execute($songIDs);
 
-        $songs = [];
+        $songRows = [];
         foreach ($query->fetchAll() as $song) {
-            if ((int) $song['isDisabled'] === 1) {
-                continue;
+            $songRows[(int) $song['songID']] = $song;
+        }
+
+        if ($this->externalSongs !== null) {
+            foreach ($songIDs as $songID) {
+                if (!isset($songRows[$songID])) {
+                    $fetched = $this->externalSongs->findOrFetch($songID);
+                    if ($fetched !== null) {
+                        $songRows[$songID] = $fetched;
+                    }
+                }
             }
-            $download = (string) $song['download'];
-            if (str_contains($download, ':')) {
-                $download = rawurlencode($download);
-            }
-            $songs[(int) $song['songID']] = implode('~|~', [
-                '1', (string) (int) $song['songID'],
-                '2', $this->field((string) $song['name'], 255),
-                '3', (string) (int) $song['authorID'],
-                '4', $this->field((string) $song['authorName'], 255),
-                '5', (string) $song['size'],
-                '6', '',
-                '10', $download,
-                '7', '',
-                '8', '1',
-            ]);
         }
 
         $ordered = [];
         foreach ($songIDs as $songID) {
-            if (isset($songs[$songID])) {
-                $ordered[] = $songs[$songID];
+            if (!isset($songRows[$songID]) || (int) $songRows[$songID]['isDisabled'] === 1) {
+                continue;
             }
+            $ordered[] = $this->formatSong($songRows[$songID]);
         }
+
         $sections[2] = implode('~:~', $ordered);
         return implode('#', $sections);
+    }
+
+    /** @param array<string,mixed> $song */
+    private function formatSong(array $song): string
+    {
+        $download = (string) $song['download'];
+        if (str_contains($download, ':')) {
+            $download = rawurlencode($download);
+        }
+        return implode('~|~', [
+            '1', (string) (int) $song['songID'],
+            '2', $this->field((string) $song['name'], 255),
+            '3', (string) (int) $song['authorID'],
+            '4', $this->field((string) $song['authorName'], 255),
+            '5', (string) $song['size'],
+            '6', '',
+            '10', $download,
+            '7', '',
+            '8', '1',
+        ]);
     }
 
     /** @return array<int,int> */

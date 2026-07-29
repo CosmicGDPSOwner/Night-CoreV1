@@ -91,7 +91,7 @@ Night Core has two independent custom-song paths:
 - external Newgrounds/Boomlings lookup for unknown IDs when the upstream is reachable;
 - a server-hosted local MP3 library managed through the token-protected `/songAdmin.php` uploader.
 
-Local uploads get generated Song IDs in the `90000000..99999999` range and are served by Night Core itself, so they do not depend on external audio services.
+New local uploads use a configurable seven-digit Song ID range, `2000000..8999999` by default, and are served by Night Core itself. Older high-ID local songs remain valid but are not reused for new allocations.
 
 See `docs/CUSTOM_SONGS.md` for local uploads and `docs/NEWGROUNDS.md` for external lookup.
 

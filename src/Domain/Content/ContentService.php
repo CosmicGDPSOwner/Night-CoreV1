@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NightCore\Domain\Content;
 
 use NightCore\Domain\Accounts\AccountRepository;
+use NightCore\Domain\Moderation\StaffAccessService;
 use NightCore\Domain\Progress\ProgressRepository;
 use NightCore\Security\AccountAuthenticator;
 
@@ -16,7 +17,8 @@ final class ContentService
         private AccountAuthenticator $authenticator,
         private ProgressRepository $progress,
         private CommentAccessPolicy $commentAccess,
-        private NewgroundsSongProvider $songProvider
+        private NewgroundsSongProvider $songProvider,
+        private ?StaffAccessService $staffAccess = null
     ) {
     }
 
@@ -192,7 +194,10 @@ final class ContentService
             $parts[] = '10~' . (int) $row['percent'];
             $extID = is_numeric((string) ($row['extID'] ?? '')) ? (int) $row['extID'] : (int) $row['accountID'];
             if ($binaryVersion > 31) {
-                $parts[] = '11~0:1~' . $this->field((string) $row['userName'], 20)
+                $badge = $this->staffAccess?->nativeBadgeLevel($extID) ?? 0;
+                $color = $badge > 0 ? ($this->staffAccess?->nativeCommentColor($extID) ?? '') : '';
+                $moderation = '~11~' . $badge . ($badge > 0 && $color !== '' ? '~12~' . $color : '');
+                $parts[] = '11~0' . $moderation . ':1~' . $this->field((string) $row['userName'], 20)
                     . '~7~1~9~' . (int) ($row['icon'] ?? 0)
                     . '~10~' . (int) ($row['color1'] ?? 0)
                     . '~11~' . (int) ($row['color2'] ?? 0)

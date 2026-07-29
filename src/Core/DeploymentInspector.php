@@ -67,8 +67,10 @@ final class DeploymentInspector
             true
         );
 
+        $publicMediaUploads = MediaPolicy::load($root)->publicUploadsEnabled();
         $legacySongAdminEnabled = trim(Config::get('CUSTOM_SONG_ADMIN_TOKEN', '') ?? '') !== '';
-        $mediaAdminEnabled = trim(Config::get('MEDIA_ADMIN_TOKEN', '') ?? '') !== '' || $legacySongAdminEnabled;
+        $songWriteRequired = $publicMediaUploads || $legacySongAdminEnabled;
+        $sfxWriteRequired = $publicMediaUploads;
 
         $songStorage = self::customSongStoragePath($root);
         $localSongCount = 0;
@@ -79,12 +81,12 @@ final class DeploymentInspector
                 $localSongCount = 0;
             }
         }
-        $songStorageRequired = $mediaAdminEnabled || $localSongCount > 0;
-        $songStorageOk = !$songStorageRequired || (is_dir($songStorage) && is_readable($songStorage) && (!$mediaAdminEnabled || is_writable($songStorage)));
+        $songStorageRequired = $songWriteRequired || $localSongCount > 0;
+        $songStorageOk = !$songStorageRequired || (is_dir($songStorage) && is_readable($songStorage) && (!$songWriteRequired || is_writable($songStorage)));
         if (!$songStorageRequired) {
             $songStorageDetail = 'disabled; ' . $songStorage;
         } elseif ($songStorageOk) {
-            $songStorageDetail = $songStorage . ($mediaAdminEnabled ? ' (writable)' : ' (readable)');
+            $songStorageDetail = $songStorage . ($songWriteRequired ? ' (writable)' : ' (readable)');
         } else {
             $songStorageDetail = $songStorage . ' (missing or insufficient permissions)';
         }
@@ -99,12 +101,12 @@ final class DeploymentInspector
                 $localSfxCount = 0;
             }
         }
-        $sfxStorageRequired = $mediaAdminEnabled || $localSfxCount > 0;
-        $sfxStorageOk = !$sfxStorageRequired || (is_dir($sfxStorage) && is_readable($sfxStorage) && (!$mediaAdminEnabled || is_writable($sfxStorage)));
+        $sfxStorageRequired = $sfxWriteRequired || $localSfxCount > 0;
+        $sfxStorageOk = !$sfxStorageRequired || (is_dir($sfxStorage) && is_readable($sfxStorage) && (!$sfxWriteRequired || is_writable($sfxStorage)));
         if (!$sfxStorageRequired) {
             $sfxStorageDetail = 'disabled; ' . $sfxStorage;
         } elseif ($sfxStorageOk) {
-            $sfxStorageDetail = $sfxStorage . ($mediaAdminEnabled ? ' (writable)' : ' (readable)');
+            $sfxStorageDetail = $sfxStorage . ($sfxWriteRequired ? ' (writable)' : ' (readable)');
         } else {
             $sfxStorageDetail = $sfxStorage . ' (missing or insufficient permissions)';
         }

@@ -1,0 +1,46 @@
+-- Universal GD 2.2 profile fields.
+-- @ensure-column directives are handled by Night Core's migration runner and only add missing columns.
+-- This keeps the migration safe for both fresh Night Core databases and existing Cvolton-compatible schemas.
+
+-- @ensure-column users stars INT NOT NULL DEFAULT 0
+-- @ensure-column users demons INT NOT NULL DEFAULT 0
+-- @ensure-column users coins INT NOT NULL DEFAULT 0
+-- @ensure-column users userCoins INT NOT NULL DEFAULT 0
+-- @ensure-column users diamonds INT NOT NULL DEFAULT 0
+-- @ensure-column users moons INT NOT NULL DEFAULT 0
+-- @ensure-column users icon INT NOT NULL DEFAULT 0
+-- @ensure-column users color1 INT NOT NULL DEFAULT 0
+-- @ensure-column users color2 INT NOT NULL DEFAULT 0
+-- @ensure-column users color3 INT NOT NULL DEFAULT 0
+-- @ensure-column users iconType INT NOT NULL DEFAULT 0
+-- @ensure-column users special INT NOT NULL DEFAULT 0
+-- @ensure-column users accIcon INT NOT NULL DEFAULT 0
+-- @ensure-column users accShip INT NOT NULL DEFAULT 0
+-- @ensure-column users accBall INT NOT NULL DEFAULT 0
+-- @ensure-column users accBird INT NOT NULL DEFAULT 0
+-- @ensure-column users accDart INT NOT NULL DEFAULT 0
+-- @ensure-column users accRobot INT NOT NULL DEFAULT 0
+-- @ensure-column users accGlow INT NOT NULL DEFAULT 0
+-- @ensure-column users accSpider INT NOT NULL DEFAULT 0
+-- @ensure-column users accExplosion INT NOT NULL DEFAULT 0
+-- @ensure-column users accSwing INT NOT NULL DEFAULT 0
+-- @ensure-column users accJetpack INT NOT NULL DEFAULT 0
+-- @ensure-column users gameVersion INT NOT NULL DEFAULT 0
+-- @ensure-column users secret VARCHAR(64) NOT NULL DEFAULT ''
+-- @ensure-column users IP VARCHAR(45) NOT NULL DEFAULT ''
+-- @ensure-column users lastPlayed BIGINT NOT NULL DEFAULT 0
+-- @ensure-column users isBanned TINYINT NOT NULL DEFAULT 0
+-- @ensure-column users dinfo VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column users sinfo VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column users pinfo VARCHAR(255) NOT NULL DEFAULT ''
+
+-- @ensure-column accounts mS TINYINT NOT NULL DEFAULT 0
+-- @ensure-column accounts frS TINYINT NOT NULL DEFAULT 0
+-- @ensure-column accounts cS TINYINT NOT NULL DEFAULT 0
+-- @ensure-column accounts youtubeurl VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column accounts twitter VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column accounts twitch VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column accounts discord VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column accounts instagram VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column accounts tiktok VARCHAR(255) NOT NULL DEFAULT ''
+-- @ensure-column accounts custom VARCHAR(255) NOT NULL DEFAULT ''

@@ -7,6 +7,8 @@ namespace NightCore\Core;
 use NightCore\Domain\Accounts\AccountRepository;
 use NightCore\Domain\Accounts\AccountService;
 use NightCore\Domain\Accounts\AuthRateLimiter;
+use NightCore\Domain\Profiles\ProfileRepository;
+use NightCore\Domain\Profiles\ProfileService;
 use NightCore\Security\AccountAuthenticator;
 use NightCore\Security\PasswordService;
 use PDO;
@@ -17,6 +19,7 @@ final class Application
     private PasswordService $passwords;
     private AccountRepository $accountRepository;
     private AuthRateLimiter $rateLimiter;
+    private ProfileRepository $profileRepository;
 
     public function __construct(private PDO $db, private TableNames $tables)
     {
@@ -30,6 +33,7 @@ final class Application
             Config::getInt('AUTH_MAX_ATTEMPTS', 8),
             Config::getInt('AUTH_WINDOW_SECONDS', 3600)
         );
+        $this->profileRepository = new ProfileRepository($db, $tables);
     }
 
     public static function boot(): self
@@ -68,6 +72,15 @@ final class Application
     public function authenticator(): AccountAuthenticator
     {
         return new AccountAuthenticator($this->accountRepository, $this->rateLimiter, $this->passwords);
+    }
+
+    public function profiles(): ProfileService
+    {
+        return new ProfileService(
+            $this->profileRepository,
+            $this->accountRepository,
+            $this->authenticator()
+        );
     }
 
     public function serverName(): string

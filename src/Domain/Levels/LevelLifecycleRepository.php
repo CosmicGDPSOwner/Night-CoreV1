@@ -98,6 +98,17 @@ final class LevelLifecycleRepository
             ':levelID' => $levelID,
             ':accountID' => $accountID,
         ]);
-        return $query->rowCount() === 1;
+        if ($query->rowCount() === 1) {
+            return true;
+        }
+
+        // MySQL reports zero affected rows when the requested value and timestamp are
+        // unchanged. Ownership still makes that idempotent update a successful request.
+        $owner = $this->db->prepare(
+            'SELECT 1 FROM ' . $this->tables->get('levels') .
+            ' WHERE levelID = :levelID AND CAST(extID AS UNSIGNED) = :accountID LIMIT 1'
+        );
+        $owner->execute([':levelID' => $levelID, ':accountID' => $accountID]);
+        return $owner->fetchColumn() !== false;
     }
 }

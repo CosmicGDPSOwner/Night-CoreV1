@@ -50,7 +50,7 @@ try {
         ),
         'likeGJItem211.php', 'likeGJItem21.php', 'likeGJItem20.php' => $app->content()->like(
             $accountID, $gjp, $gjp2, $ip,
-            $intAny(['type'], Request::post('levelID') !== '' ? 1 : 1),
+            $intAny(['type'], 1),
             $intAny(['itemID', 'levelID']), Request::post('like', '1') === '1' ? 1 : -1
         ),
         'reportGJLevel.php' => $app->content()->reportLevel(
@@ -114,14 +114,31 @@ try {
         'getGJGauntlets21.php', 'getGJGauntlets.php' => $app->progress()->gauntlets(),
         'getGJMapPacks21.php', 'getGJMapPacks20.php' => $app->progress()->mapPacks((int) Request::post('page')),
         'uploadGJLevelList.php' => $app->progress()->uploadList(
-            $accountID, $gjp, $gjp2, $ip, (int) Request::post('listID'), Request::post('listName'),
-            Request::post('listDesc'), Request::post('levelIDs'), (int) Request::post('reward'), (int) Request::post('unlisted')
+            $accountID,
+            $gjp,
+            $gjp2,
+            $ip,
+            (int) Request::post('listID'),
+            Request::post('listName'),
+            Request::post('listDesc'),
+            Request::post('listLevels', Request::post('levelIDs')),
+            (int) Request::post('difficulty'),
+            (int) (Request::post('listVersion', '1') ?: '1'),
+            (int) Request::post('original'),
+            (int) Request::post('unlisted')
         ),
         'deleteGJLevelList.php' => $app->progress()->deleteList(
             $accountID, $gjp, $gjp2, $ip, (int) Request::post('listID')
         ),
         'getGJLevelLists.php' => $app->progress()->lists(
-            $accountID, $gjp, $gjp2, $ip, Request::post('str'), (int) Request::post('page'), (int) Request::post('type')
+            $accountID,
+            $gjp,
+            $gjp2,
+            $ip,
+            Request::post('str'),
+            (int) Request::post('page'),
+            (int) Request::post('type'),
+            Request::post('followed')
         ),
 
         'requestUserAccess.php' => $app->moderation()->requestAccess($accountID, $gjp, $gjp2, $ip),

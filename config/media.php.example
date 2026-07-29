@@ -11,4 +11,12 @@ return [
     // Per-file limits enforced by Night Core. Infrastructure limits in PHP/Nginx may be lower.
     'song_max_mib' => 25,
     'sfx_max_mib' => 10,
+
+    // Anonymous upload abuse protection. Set an individual numeric limit to 0 to disable only that limit.
+    'upload_cooldown_seconds' => 30,
+    'uploads_per_hour_per_ip' => 10,
+    'global_uploads_per_hour' => 200,
+
+    // Stop accepting new uploads before the media filesystem falls below this free-space reserve.
+    'minimum_free_space_mib' => 512,
 ];

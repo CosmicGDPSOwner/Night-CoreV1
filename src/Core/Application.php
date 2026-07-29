@@ -10,6 +10,7 @@ use NightCore\Domain\Accounts\AuthRateLimiter;
 use NightCore\Domain\Content\ContentRepository;
 use NightCore\Domain\Content\ContentService;
 use NightCore\Domain\Levels\LevelRepository;
+use NightCore\Domain\Levels\LevelSearchBridge;
 use NightCore\Domain\Levels\LevelService;
 use NightCore\Domain\Levels\LevelStorage;
 use NightCore\Domain\Moderation\ModerationRepository;
@@ -122,6 +123,11 @@ final class Application
             $this->authenticator(),
             max(0, Config::getInt('LEVEL_UPLOAD_COOLDOWN_SECONDS', 60))
         );
+    }
+
+    public function levelSearch(): LevelSearchBridge
+    {
+        return new LevelSearchBridge($this->db, $this->tables, $this->levels(), $this->authenticator());
     }
 
     public function content(): ContentService

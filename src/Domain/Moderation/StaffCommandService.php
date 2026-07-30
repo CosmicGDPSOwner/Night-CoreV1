@@ -156,7 +156,7 @@ final class StaffCommandService
     {
         $result = [];
         foreach (explode(',', strtolower($value)) as $reward) {
-            if (preg_match('/^(diamonds|orbs|stars|moons|keys):(\d{1,7})$/', trim($reward), $matches) !== 1) {
+            if (preg_match('/^(diamonds|orbs|keys|goldkeys):(\d{1,7})$/', trim($reward), $matches) !== 1) {
                 return null;
             }
             $amount = (int) $matches[2];

@@ -35,13 +35,12 @@ try {
     }
 
     $slotID = (int) $row['slotID'];
+    $endsAt = (int) $row['endsAt'];
     if ($slotType === 0) {
-        $endsAt = (int) $row['endsAt'];
         Response::gd($slotID . '|' . max(0, $endsAt - $now));
         return;
     }
     if ($slotType === 1) {
-        $endsAt = (int) $row['endsAt'];
         Response::gd(($slotID + 100001) . '|' . max(0, $endsAt - $now));
         return;
     }
@@ -98,15 +97,18 @@ try {
         $rewardPairs = ['8', '1'];
     }
 
-    $prefix = substr(strtr(base64_encode(random_bytes(6)), '+/=', 'AZ0'), 0, 5);
-    $plain = $prefix . ':' . $chkNumber . ':' . (int) $event['eventID'] . ':3:' . implode(',', $rewardPairs);
+    $randomPrefix = static function (): string {
+        return substr(strtr(base64_encode(random_bytes(6)), '+/=', 'AZ0'), 0, 5);
+    };
+    $plain = $randomPrefix() . ':' . $chkNumber . ':' . (int) $event['eventID'] . ':3:' . implode(',', $rewardPairs);
     $xor = '';
     $key = '59182';
     for ($i = 0, $length = strlen($plain); $i < $length; $i++) {
         $xor .= chr(ord($plain[$i]) ^ ord($key[$i % strlen($key)]));
     }
-    $encoded = $prefix . rtrim(strtr(base64_encode($xor), '+/', '-_'), '=');
-    $hash = sha1(substr($encoded, 5) . 'pC26fpYaQCtg');
+    $encodedBody = strtr(base64_encode($xor), '+/', '-_');
+    $encoded = $randomPrefix() . $encodedBody;
+    $hash = sha1($encodedBody . 'pC26fpYaQCtg');
 
     Response::gd(($slotID + 200001) . '|10|' . $encoded . '|' . $hash);
 } catch (Throwable $e) {

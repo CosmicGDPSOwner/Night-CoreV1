@@ -24,7 +24,7 @@ final class AccountAuthenticator
         }
 
         $account = $this->accounts->findById($accountID);
-        if ($account === null || (int) $account['isActive'] !== 1) {
+        if ($account === null || (int) $account['isActive'] !== 1 || $this->accounts->isAccountBanned($accountID)) {
             return false;
         }
 

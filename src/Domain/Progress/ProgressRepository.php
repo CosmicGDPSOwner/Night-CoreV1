@@ -75,7 +75,7 @@ final class ProgressRepository
     public function levelScores(int $levelID, int $limit = 100): array
     {
         $limit = max(1, min(100, $limit));
-        $query = $this->db->prepare('SELECT s.accountID, s.userID, s.percent, s.coins, s.attempts, s.scoreTime, s.updatedAt, u.userName, u.icon, u.color1, u.color2, u.iconType, u.special, u.extID FROM ' . $this->tables->get('core_level_scores') . ' s LEFT JOIN ' . $this->tables->get('users') . ' u ON u.userID = s.userID WHERE s.levelID = :levelID ORDER BY s.percent DESC, s.scoreTime ASC, s.updatedAt ASC LIMIT ' . $limit);
+        $query = $this->db->prepare('SELECT s.accountID, s.userID, s.percent, s.coins, s.attempts, s.scoreTime, s.updatedAt, u.userName, u.icon, u.color1, u.color2, u.iconType, u.special, u.extID FROM ' . $this->tables->get('core_level_scores') . ' s LEFT JOIN ' . $this->tables->get('users') . ' u ON u.userID = s.userID LEFT JOIN ' . $this->tables->get('core_user_moderation') . ' m ON m.accountID = s.accountID WHERE s.levelID = :levelID AND COALESCE(m.leaderboardBanned, 0) = 0 ORDER BY s.percent DESC, s.scoreTime ASC, s.updatedAt ASC LIMIT ' . $limit);
         $query->execute([':levelID' => $levelID]);
         return $query->fetchAll();
     }

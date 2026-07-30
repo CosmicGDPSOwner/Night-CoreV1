@@ -22,6 +22,70 @@ final class ModerationRepository
         return $row === false ? null : $row;
     }
 
+    public function accountIdByUsername(string $userName): ?int
+    {
+        $query = $this->db->prepare('SELECT accountID FROM ' . $this->tables->get('accounts') . ' WHERE LOWER(userName) = LOWER(:userName) LIMIT 1');
+        $query->execute([':userName' => $userName]);
+        $value = $query->fetchColumn();
+        return $value === false ? null : (int) $value;
+    }
+
+    public function setAccountBan(int $targetAccountID, int $actorAccountID, bool $banned): bool
+    {
+        if ($targetAccountID <= 0) {
+            return false;
+        }
+        $query = $this->db->prepare(
+            'INSERT INTO ' . $this->tables->get('core_user_moderation') .
+            ' (accountID, accountBanned, bannedBy, bannedAt, updatedAt) VALUES (:accountID, :banned, :actor, :bannedAt, :updatedAt) '
+            . 'ON DUPLICATE KEY UPDATE accountBanned = VALUES(accountBanned), bannedBy = VALUES(bannedBy), bannedAt = VALUES(bannedAt), updatedAt = VALUES(updatedAt)'
+        );
+        $now = time();
+        $query->execute([
+            ':accountID' => $targetAccountID,
+            ':banned' => $banned ? 1 : 0,
+            ':actor' => $actorAccountID,
+            ':bannedAt' => $banned ? $now : 0,
+            ':updatedAt' => $now,
+        ]);
+        return true;
+    }
+
+    public function setLeaderboardBan(int $targetAccountID, int $actorAccountID, bool $banned): bool
+    {
+        if ($targetAccountID <= 0) {
+            return false;
+        }
+        $this->db->beginTransaction();
+        try {
+            $state = $this->db->prepare(
+                'INSERT INTO ' . $this->tables->get('core_user_moderation') .
+                ' (accountID, leaderboardBanned, leaderboardBannedBy, leaderboardBannedAt, updatedAt) VALUES (:accountID, :banned, :actor, :bannedAt, :updatedAt) '
+                . 'ON DUPLICATE KEY UPDATE leaderboardBanned = VALUES(leaderboardBanned), leaderboardBannedBy = VALUES(leaderboardBannedBy), leaderboardBannedAt = VALUES(leaderboardBannedAt), updatedAt = VALUES(updatedAt)'
+            );
+            $now = time();
+            $state->execute([
+                ':accountID' => $targetAccountID,
+                ':banned' => $banned ? 1 : 0,
+                ':actor' => $actorAccountID,
+                ':bannedAt' => $banned ? $now : 0,
+                ':updatedAt' => $now,
+            ]);
+
+            // Keep the legacy users.isBanned flag synchronized so existing global
+            // leaderboard/profile compatibility paths also hide leaderboard-banned users.
+            $users = $this->db->prepare('UPDATE ' . $this->tables->get('users') . ' SET isBanned = :banned WHERE CAST(extID AS UNSIGNED) = :accountID');
+            $users->execute([':banned' => $banned ? 1 : 0, ':accountID' => $targetAccountID]);
+            $this->db->commit();
+            return true;
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
     public function suggest(int $levelID, int $accountID, int $stars, int $feature): void
     {
         $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_star_suggestions') . ' (levelID, accountID, stars, feature, createdAt) VALUES (:levelID, :accountID, :stars, :feature, :createdAt) ON DUPLICATE KEY UPDATE stars = VALUES(stars), feature = VALUES(feature), createdAt = VALUES(createdAt)');
@@ -48,7 +112,7 @@ final class ModerationRepository
                 ':demonCheck' => $demon,
                 ':feature' => $feature,
                 ':epic' => $epic,
-                ':rateDate' => time(),
+                ':rateDate' => $stars > 0 ? time() : 0,
                 ':levelID' => $levelID,
             ]);
             $log = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_rate_log') . ' (levelID, accountID, stars, feature, epic, demon, demonDifficulty, createdAt) VALUES (:levelID, :accountID, :stars, :feature, :epic, :demon, 0, :createdAt)');

@@ -6,6 +6,7 @@ namespace NightCore\Domain\Content;
 
 use NightCore\Domain\Accounts\AccountRepository;
 use NightCore\Domain\Moderation\StaffAccessService;
+use NightCore\Domain\Moderation\StaffCommandService;
 use NightCore\Domain\Progress\ProgressRepository;
 use NightCore\Security\AccountAuthenticator;
 
@@ -18,7 +19,8 @@ final class ContentService
         private ProgressRepository $progress,
         private CommentAccessPolicy $commentAccess,
         private NewgroundsSongProvider $songProvider,
-        private ?StaffAccessService $staffAccess = null
+        private ?StaffAccessService $staffAccess = null,
+        private ?StaffCommandService $staffCommands = null
     ) {
     }
 
@@ -67,6 +69,21 @@ final class ContentService
         if ($comment === '') {
             return '-1';
         }
+
+        if ($this->staffCommands !== null) {
+            $commandResult = $this->staffCommands->executeLevelComment(
+                $accountID,
+                $gjp,
+                $gjp2,
+                $ip,
+                $levelID,
+                $comment
+            );
+            if ($commandResult !== null) {
+                return $commandResult;
+            }
+        }
+
         if ($gameVersion < 20) {
             $comment = base64_encode($comment);
         }

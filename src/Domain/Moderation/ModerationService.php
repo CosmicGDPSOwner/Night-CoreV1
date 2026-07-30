@@ -19,115 +19,90 @@ final class ModerationService
 
     public function requestAccess(int $accountID, string $gjp, string $gjp2, string $ip): string
     {
-        if (!$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
-            return '-1';
-        }
-        if ($this->staffAccess !== null) {
-            $hasAccess = $this->staffAccess->has($accountID, 'levels.suggest')
-                || $this->staffAccess->has($accountID, 'levels.rate')
-                || $this->staffAccess->has($accountID, 'levels.demon');
-            if ($hasAccess) {
-                return (string) max(1, $this->staffAccess->nativeBadgeLevel($accountID));
-            }
+        if (!$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) return '-1';
+        if ($this->staffAccess !== null && ($this->staffAccess->has($accountID, 'levels.suggest') || $this->staffAccess->has($accountID, 'levels.rate') || $this->staffAccess->has($accountID, 'levels.demon'))) {
+            return (string) max(1, $this->staffAccess->nativeBadgeLevel($accountID));
         }
         $role = $this->legacyRole($accountID);
-        if ($role === null || (int) $role['roleLevel'] <= 0) {
-            return '-1';
-        }
-        return (string) min(2, (int) $role['roleLevel']);
+        return $role !== null && (int) $role['roleLevel'] > 0 ? (string) min(2, (int) $role['roleLevel']) : '-1';
     }
 
     public function suggestStars(int $accountID, string $gjp, string $gjp2, string $ip, int $levelID, int $stars, int $feature): string
     {
-        if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
-            return '-1';
-        }
-        $allowed = $this->staffAccess?->has($accountID, 'levels.suggest') ?? false;
-        if (!$allowed) {
-            $role = $this->legacyRole($accountID);
-            $allowed = $role !== null && (int) $role['roleLevel'] > 0;
-        }
-        if (!$allowed) {
-            return '-1';
-        }
+        if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) return '-1';
+        $allowed = $this->has($accountID, 'levels.suggest', 'roleLevel');
+        if (!$allowed) return '-1';
         $this->moderation->suggest($levelID, $accountID, max(0, min(10, $stars)), $feature > 0 ? 1 : 0);
         return '1';
     }
 
     public function rateStars(int $accountID, string $gjp, string $gjp2, string $ip, int $levelID, int $stars, int $feature, int $epic): string
     {
-        if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
-            return '-1';
-        }
-
-        $canRate = $this->staffAccess?->has($accountID, 'levels.rate') ?? false;
-        $canFeature = $this->staffAccess?->has($accountID, 'levels.feature') ?? false;
-        $canEpic = $this->staffAccess?->has($accountID, 'levels.epic') ?? false;
-        if (!$canRate) {
-            $role = $this->legacyRole($accountID);
-            if ($role === null || (int) $role['canRate'] !== 1) {
-                return '-1';
-            }
-            $canFeature = (int) $role['canFeature'] === 1;
-            $canEpic = (int) $role['canEpic'] === 1;
-        }
-
+        if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) return '-1';
+        if (!$this->has($accountID, 'levels.rate', 'canRate')) return '-1';
+        $canFeature = $this->has($accountID, 'levels.feature', 'canFeature');
+        $canEpic = $this->has($accountID, 'levels.epic', 'canEpic');
         $stars = max(0, min(10, $stars));
         [$difficulty, $auto, $demon] = $this->difficultyFromStars($stars);
-        $feature = $canFeature ? max(0, $feature) : 0;
-        $epic = $canEpic ? max(0, min(3, $epic)) : 0;
+        return $this->moderation->rate($levelID, $accountID, $stars, $canFeature ? max(0, $feature) : 0, $canEpic ? max(0, min(3, $epic)) : 0, $difficulty, $auto, $demon) ? '1' : '-1';
+    }
+
+    public function rateTier(int $accountID, string $gjp, string $gjp2, string $ip, int $levelID, int $stars, int $feature, int $epic): string
+    {
+        if ($levelID <= 0 || $stars < 0 || $stars > 10 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) return '-1';
+        if (!$this->has($accountID, 'levels.rate', 'canRate')) return '-1';
+        if ($feature > 0 && !$this->has($accountID, 'levels.feature', 'canFeature')) return '-1';
+        if ($epic > 0 && !$this->has($accountID, 'levels.epic', 'canEpic')) return '-1';
+        [$difficulty, $auto, $demon] = $this->difficultyFromStars($stars);
         return $this->moderation->rate($levelID, $accountID, $stars, $feature, $epic, $difficulty, $auto, $demon) ? '1' : '-1';
     }
 
     public function rateDemon(int $accountID, string $gjp, string $gjp2, string $ip, int $levelID, int $rating): string
     {
-        if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) {
-            return '-1';
-        }
-        $allowed = ($this->staffAccess?->has($accountID, 'levels.demon') ?? false)
-            || ($this->staffAccess?->has($accountID, 'levels.rate') ?? false);
-        if (!$allowed) {
-            $role = $this->legacyRole($accountID);
-            $allowed = $role !== null && (int) $role['canRate'] === 1;
-        }
-        if (!$allowed) {
-            return '-1';
-        }
+        if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) return '-1';
+        if (!$this->has($accountID, 'levels.demon', 'canRate') && !$this->has($accountID, 'levels.rate', 'canRate')) return '-1';
         $map = [1 => 3, 2 => 4, 3 => 0, 4 => 5, 5 => 6];
-        if (!isset($map[$rating])) {
-            return '-1';
-        }
+        if (!isset($map[$rating])) return '-1';
         return $this->moderation->rateDemon($levelID, $accountID, $map[$rating]) ? (string) $levelID : '-1';
+    }
+
+    public function setAccountBan(int $accountID, string $gjp, string $gjp2, string $ip, string $userName, bool $banned): string
+    {
+        if (!$this->authenticator->verify($accountID, $gjp, $gjp2, $ip) || !$this->has($accountID, 'users.ban', 'canBan')) return '-1';
+        $target = $this->moderation->accountIdByUsername($userName);
+        if ($target === null || $target === $accountID || in_array($target, $this->adminAccountIDs, true)) return '-1';
+        return $this->moderation->setAccountBan($target, $accountID, $banned) ? '1' : '-1';
+    }
+
+    public function setLeaderboardBan(int $accountID, string $gjp, string $gjp2, string $ip, string $userName, bool $banned): string
+    {
+        if (!$this->authenticator->verify($accountID, $gjp, $gjp2, $ip) || !$this->has($accountID, 'users.leaderboard_ban', 'canBan')) return '-1';
+        $target = $this->moderation->accountIdByUsername($userName);
+        if ($target === null || $target === $accountID || in_array($target, $this->adminAccountIDs, true)) return '-1';
+        return $this->moderation->setLeaderboardBan($target, $accountID, $banned) ? '1' : '-1';
+    }
+
+    private function has(int $accountID, string $permission, string $legacyField): bool
+    {
+        if ($this->staffAccess?->has($accountID, $permission) ?? false) return true;
+        $role = $this->legacyRole($accountID);
+        if ($role === null) return false;
+        if ($legacyField === 'roleLevel') return (int) ($role['roleLevel'] ?? 0) > 0;
+        return (int) ($role[$legacyField] ?? 0) === 1;
     }
 
     /** @return array{0:int,1:int,2:int} */
     private function difficultyFromStars(int $stars): array
     {
         return match ($stars) {
-            1 => [50, 1, 0],
-            2 => [10, 0, 0],
-            3 => [20, 0, 0],
-            4, 5 => [30, 0, 0],
-            6, 7 => [40, 0, 0],
-            8, 9 => [50, 0, 0],
-            10 => [50, 0, 1],
-            default => [0, 0, 0],
+            1 => [50, 1, 0], 2 => [10, 0, 0], 3 => [20, 0, 0], 4, 5 => [30, 0, 0], 6, 7 => [40, 0, 0], 8, 9 => [50, 0, 0], 10 => [50, 0, 1], default => [0, 0, 0],
         };
     }
 
     private function legacyRole(int $accountID): ?array
     {
         if (in_array($accountID, $this->adminAccountIDs, true)) {
-            return [
-                'accountID' => $accountID,
-                'roleLevel' => 2,
-                'roleName' => 'Administrator',
-                'canRate' => 1,
-                'canFeature' => 1,
-                'canEpic' => 1,
-                'canModerateComments' => 1,
-                'canBan' => 1,
-            ];
+            return ['accountID'=>$accountID,'roleLevel'=>2,'roleName'=>'Administrator','canRate'=>1,'canFeature'=>1,'canEpic'=>1,'canModerateComments'=>1,'canBan'=>1];
         }
         return $this->moderation->role($accountID);
     }

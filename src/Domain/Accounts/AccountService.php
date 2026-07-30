@@ -3,49 +3,47 @@
 declare(strict_types=1);
 namespace NightCore\Domain\Accounts;
 
+use NightCore\Core\Config;
 use NightCore\Security\PasswordService;
 use PDOException;
 
 final class AccountService
 {
-    public function __construct(
-        private AccountRepository $accounts,
-        private AuthRateLimiter $rateLimiter,
-        private RegistrationRateLimiter $registrationLimiter,
-        private PasswordService $passwords,
-        private bool $preactivateAccounts,
-        private bool $migrateLegacyUdidLevels
-    ) {}
+    public function __construct(private AccountRepository $accounts, private AuthRateLimiter $rateLimiter, private PasswordService $passwords, private bool $preactivateAccounts, private bool $migrateLegacyUdidLevels) {}
 
-    public function register(string $userName, string $password, string $email, string $ip): int
+    public function register(string $userName, string $password, string $email, string $ip = ''): int
     {
         $userName = trim($userName);
-        if ($this->registrationLimiter->blocked($ip)) {
-            $this->registrationLimiter->record($ip, false, 'rate_limited');
+        $hashKey = Config::get('REGISTRATION_IP_HASH_KEY', '') ?? '';
+        $maxPerIp = max(0, Config::getInt('REGISTRATION_MAX_PER_IP', 2));
+        $maxPerSubnet = max(0, Config::getInt('REGISTRATION_MAX_PER_SUBNET', 10));
+        $windowSeconds = max(0, Config::getInt('REGISTRATION_WINDOW_SECONDS', 86400));
+        if ($this->accounts->registrationBlocked($ip, $maxPerIp, $maxPerSubnet, $windowSeconds, $hashKey)) {
+            $this->accounts->recordRegistrationAttempt($ip, false, 'rate_limited', $hashKey);
             return -1;
         }
         if ($userName === '' || $password === '') {
-            $this->registrationLimiter->record($ip, false, 'invalid_input');
+            $this->accounts->recordRegistrationAttempt($ip, false, 'invalid_input', $hashKey);
             return -1;
         }
         if (strlen($userName) > 20) {
-            $this->registrationLimiter->record($ip, false, 'username_length');
+            $this->accounts->recordRegistrationAttempt($ip, false, 'username_length', $hashKey);
             return -4;
         }
         if ($this->accounts->findByUsername($userName) !== null) {
-            $this->registrationLimiter->record($ip, false, 'duplicate_username');
+            $this->accounts->recordRegistrationAttempt($ip, false, 'duplicate_username', $hashKey);
             return -2;
         }
         try {
             $this->accounts->create($userName, $this->passwords->hashPassword($password), trim($email), $this->preactivateAccounts ? 1 : 0, $this->passwords->hashGjp2FromPassword($password));
         } catch (PDOException $e) {
             if ($e->getCode() === '23000') {
-                $this->registrationLimiter->record($ip, false, 'duplicate_account');
+                $this->accounts->recordRegistrationAttempt($ip, false, 'duplicate_account', $hashKey);
                 return -2;
             }
             throw $e;
         }
-        $this->registrationLimiter->record($ip, true, 'registered');
+        $this->accounts->recordRegistrationAttempt($ip, true, 'registered', $hashKey);
         return 1;
     }
 

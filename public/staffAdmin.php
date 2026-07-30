@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
+use NightCore\Core\AccountPolicy;
 use NightCore\Core\Application;
 use NightCore\Domain\Accounts\SensitiveActionConfirmationService;
 
 $root = dirname(__DIR__);
 /** @var Application $app */
 $app = require $root . '/bootstrap.php';
+$serverPolicy = AccountPolicy::load($root);
 $staff = $app->staffAccess();
 $repository = $staff->repository();
 $db = $app->db();
@@ -33,8 +35,6 @@ session_set_cookie_params([
 ]);
 session_start();
 
-const STAFF_IDLE_TIMEOUT = 1800;
-const STAFF_ABSOLUTE_TIMEOUT = 28800;
 const STAFF_LOGIN_WINDOW = 900;
 const STAFF_LOGIN_MAX_FAILURES = 5;
 
@@ -135,10 +135,7 @@ if ($loggedAccountID > 0) {
     $lastSeen = (int) ($_SESSION['staff_last_seen'] ?? 0);
     $sessionFingerprint = (string) ($_SESSION['staff_fingerprint'] ?? '');
     $account = $app->accountRepository()->findById($loggedAccountID);
-    $invalid = $issuedAt <= 0
-        || $lastSeen <= 0
-        || $now - $lastSeen > STAFF_IDLE_TIMEOUT
-        || $now - $issuedAt > STAFF_ABSOLUTE_TIMEOUT
+    $invalid = $serverPolicy->sessionExpired($issuedAt, $lastSeen, $now)
         || !hash_equals($fingerprint, $sessionFingerprint)
         || $account === null
         || (int) ($account['isActive'] ?? 0) !== 1
@@ -369,6 +366,7 @@ $rolePermissions = [];
 foreach ($allRoles as $role) {
     $rolePermissions[(int) $role['roleID']] = array_flip($repository->permissionsForRole((int) $role['roleID']));
 }
+$sessionDescription = $serverPolicy->sessionDescription();
 
 header('Content-Type: text/html; charset=utf-8');
 header("Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
@@ -382,7 +380,7 @@ header('X-Frame-Options: DENY');
 <?php if (!$loggedAccount): ?>
 <section class="card" style="max-width:520px;margin-inline:auto"><h2>Staff management login</h2><p class="muted">Repeated failed sign-in attempts are temporarily blocked.</p><form method="post"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><input type="hidden" name="action" value="login"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button type="submit">Sign in</button></form></section>
 <?php else: ?>
-<p class="muted">Signed in as <strong><?= $escape((string) $loggedAccount['userName']) ?></strong> (account <?= (int) $loggedAccount['accountID'] ?>). Session expires after 30 minutes idle or 8 hours total.</p>
+<p class="muted">Signed in as <strong><?= $escape((string) $loggedAccount['userName']) ?></strong> (account <?= (int) $loggedAccount['accountID'] ?>). <?= $escape($sessionDescription) ?></p>
 <div class="security-state"><strong>Per-action password confirmation: <?= $requireSensitivePassword ? 'enabled' : 'disabled' ?></strong><br><small>Change this setting from your profile in <code>/dashboard.php</code>. Staff login always requires a password.</small></div>
 <div class="grid">
 <section class="card"><h2>Create role</h2><form method="post"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><input type="hidden" name="action" value="save_role"><label>Name</label><input name="name" maxlength="64" required><label>Priority</label><input type="number" name="priority" value="10"><label>Geometry Dash badge</label><select name="mod_badge_level"><option value="0">None</option><option value="1">Moderator</option><option value="2">Elder / administrator</option></select><label>Badge text</label><input name="badge_text" maxlength="24" placeholder="MOD"><label>Badge color</label><input name="badge_color" placeholder="#7c3aed"><label>Comment color</label><input name="comment_color" placeholder="#a78bfa"><label>Username color</label><input name="username_color" placeholder="#c4b5fd"><h3 style="margin-top:18px">Permissions</h3><div class="permissions"><?php foreach ($permissionRows as $permission): $key=(string)$permission['permissionKey']; ?><label><input type="checkbox" name="permissions[]" value="<?= $escape($key) ?>"<?= (!$actorIsOwner && $key==='staff.manage')?' disabled':'' ?>><span><code><?= $escape($key) ?></code><br><small><?= $escape((string)$permission['description']) ?></small></span></label><?php endforeach; ?></div><?php if ($requireSensitivePassword): ?><div class="reauth"><label>Confirm current password</label><input type="password" name="current_password" autocomplete="current-password" required></div><?php endif; ?><button type="submit">Create role</button></form></section>

@@ -1,7 +1,6 @@
 <?php
 
 declare(strict_types=1);
-
 namespace NightCore\Domain\Moderation;
 
 use NightCore\Security\AccountAuthenticator;
@@ -40,7 +39,7 @@ final class ModerationService
             $stars = max(0, min(10, $stars));
             [$difficulty, $auto, $demon] = $this->difficultyFromStars($stars);
             $ratedFeature = $this->has($accountID, 'levels.feature', 'canFeature') && $feature > 0 ? 1 : 0;
-            return $this->moderation->rate(
+            $rated = $this->moderation->rate(
                 $levelID,
                 $accountID,
                 $stars,
@@ -49,7 +48,14 @@ final class ModerationService
                 $difficulty,
                 $auto,
                 $demon
-            ) ? '1' : '-1';
+            );
+            if (!$rated) return '-1';
+
+            // Keep the original panel submission in the suggestion audit/search.
+            // The level is already rated above; this row only preserves moderator
+            // workflow history and the existing type-27 compatibility contract.
+            $this->moderation->suggest($levelID, $accountID, $stars, $ratedFeature);
+            return '1';
         }
 
         if (!$this->has($accountID, 'levels.suggest', 'roleLevel')) return '-1';

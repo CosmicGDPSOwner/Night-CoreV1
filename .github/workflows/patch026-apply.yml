@@ -1,0 +1,52 @@
+name: Apply PATCH 026 payload
+
+on:
+  push:
+    branches:
+      - agent/patch-026-central-web-security-docs
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct reviewed payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .patch026/part-* | base64 --decode > /tmp/patch026.tar.gz
+          echo '4ed679a98afb52dfe230550953d8f8226592408c23a057ef31137a8fbbd124a7  /tmp/patch026.tar.gz' | sha256sum --check --strict
+          tar -xzf /tmp/patch026.tar.gz -C .
+
+      - name: Validate generated changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src/Web/Security public tests -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l config2.example.php
+          php tests/web_security.php
+          git diff --check
+
+      - name: Commit generated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .patch026 .github/workflows/patch026-apply.yml
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No generated changes to commit.'
+            exit 0
+          fi
+          git config user.name 'Night Core automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'PATCH 026: centralize web security and align documentation'
+          git push origin "HEAD:${GITHUB_REF_NAME}"

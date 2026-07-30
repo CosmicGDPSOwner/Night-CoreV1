@@ -74,22 +74,27 @@ final class StaffCommandService
                 return self::SYNTAX_ERROR;
             }
 
-            $start = array_key_exists('start', $options) ? $this->parseStart($options['start']) : ($action === 'event' || $action === 'eventset' ? time() : null);
-            $duration = array_key_exists('duration', $options) ? $this->parseDuration($options['duration']) : null;
-            $end = $duration === null ? null : (($start ?? time()) + $duration);
-            $rewards = array_key_exists('reward', $options) ? $this->parseRewards($options['reward']) : null;
+            $hasStart = array_key_exists('start', $options);
+            $hasDuration = array_key_exists('duration', $options);
+            $hasReward = array_key_exists('reward', $options);
+            $start = $hasStart ? $this->parseStart($options['start']) : (($action === 'event' || $action === 'eventset') ? time() : null);
+            $duration = $hasDuration ? $this->parseDuration($options['duration']) : null;
+            $rewards = $hasReward ? $this->parseRewards($options['reward']) : null;
 
-            if (($action === 'event' || $action === 'eventset') && ($start === null || $end === null || $rewards === null)) {
+            if (($hasStart && $start === null) || ($hasDuration && $duration === null) || ($hasReward && $rewards === null)) {
                 return self::SYNTAX_ERROR;
             }
-            if ($action === 'eventchange' && $start === null && $end === null && $rewards === null) {
+            if (($action === 'event' || $action === 'eventset') && ($start === null || $duration === null || $rewards === null)) {
+                return self::SYNTAX_ERROR;
+            }
+            if ($action === 'eventchange' && !$hasStart && !$hasDuration && !$hasReward) {
                 return self::SYNTAX_ERROR;
             }
 
             if ($action === 'event') {
-                return $this->rotations->createEvent($accountID, $gjp, $gjp2, $ip, $levelID, $start, $end, $rewards);
+                return $this->rotations->createEvent($accountID, $gjp, $gjp2, $ip, $levelID, $start, $start + $duration, $rewards);
             }
-            return $this->rotations->changeEvent($accountID, $gjp, $gjp2, $ip, $levelID, $start, $end, $rewards, $action === 'eventset');
+            return $this->rotations->changeEvent($accountID, $gjp, $gjp2, $ip, $levelID, $start, $duration, $rewards, $action === 'eventset');
         }
 
         return str_starts_with($command, '!') ? self::SYNTAX_ERROR : null;
@@ -123,6 +128,9 @@ final class StaffCommandService
         if (strtolower($value) === 'now') {
             return time();
         }
+        if (preg_match('/^\d{10}$/', $value) === 1) {
+            return (int) $value;
+        }
         $timestamp = strtotime($value);
         return $timestamp === false ? null : $timestamp;
     }
@@ -135,7 +143,8 @@ final class StaffCommandService
         $factor = match (strtolower($matches[2])) {
             'm' => 60, 'h' => 3600, 'd' => 86400, 'w' => 604800,
         };
-        return (int) $matches[1] * $factor;
+        $seconds = (int) $matches[1] * $factor;
+        return $seconds >= 3600 && $seconds <= 7776000 ? $seconds : null;
     }
 
     /** @return array<string,int>|null */
@@ -146,7 +155,11 @@ final class StaffCommandService
             if (preg_match('/^(diamonds|orbs|stars|moons|keys):(\d{1,7})$/', trim($reward), $matches) !== 1) {
                 return null;
             }
-            $result[$matches[1]] = (int) $matches[2];
+            $amount = (int) $matches[2];
+            if ($amount < 1 || $amount > 1000000 || isset($result[$matches[1]])) {
+                return null;
+            }
+            $result[$matches[1]] = $amount;
         }
         return $result === [] ? null : $result;
     }

@@ -11,12 +11,18 @@ The top-right **Sign in / Register** button opens an account modal with:
 
 Upload and registration protection remains enforced entirely on the server. The dashboard deliberately does not publish connection quotas, cooldown values, registration thresholds or network-derived identifiers.
 
-Account deletion requires both the current password and the exact account username. The user can choose 7, 14, 30, 60 or 90 days and cancel the request before it becomes due. When the deadline is reached, the deletion worker disables the account and anonymizes its username, email and credentials. Published levels remain available under a deleted-user name.
+Account deletion requires both the current password and the exact account username. The user can choose 7, 14, 30, 60 or 90 days and cancel the request before it becomes due. When the deadline is reached, the deletion worker disables the account and anonymizes its username, email and credentials. Published levels remain available under a deleted-user name. Bootstrap administrator IDs configured in `CORE_ADMIN_ACCOUNT_IDS` cannot schedule deletion from the public dashboard.
 
 Run the deletion worker periodically, for example once per hour:
 
 ```bash
 php /var/www/nightcore/bin/nightcore accounts:purge-due
+```
+
+Example cron entry:
+
+```cron
+17 * * * * cd /var/www/nightcore && /usr/bin/php bin/nightcore accounts:purge-due >/dev/null 2>&1
 ```
 
 All account and dashboard database operations use parameterized PDO statements. User-provided values are bound as parameters rather than concatenated into SQL.

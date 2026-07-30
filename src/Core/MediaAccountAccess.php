@@ -39,7 +39,7 @@ final class MediaAccountAccess
             ':since' => $now - self::LOGIN_WINDOW_SECONDS,
         ]);
         if ((int) $blocked->fetchColumn() >= self::LOGIN_MAX_FAILURES) {
-            throw new RuntimeException('Too many failed login attempts. Try again in 15 minutes.');
+            throw new RuntimeException('Too many failed login attempts. Try again later.');
         }
 
         $account = $this->accounts->findByUsername($this->field($username, 64));
@@ -48,13 +48,15 @@ final class MediaAccountAccess
             && $password !== ''
             && $this->passwords->verifyPassword($password, (string) $account['password'])
             && (int) ($account['isActive'] ?? 0) === 1
-            && !$this->accounts->isAccountBanned($accountID);
+            && !$this->accounts->isAccountBanned($accountID)
+            && !$this->accounts->isDeletionDue($accountID);
 
         $this->recordLogin($ipHash, $accountID, $valid, $now);
         if (!$valid || $account === null) {
-            throw new RuntimeException('Invalid username or password, or this account cannot upload media.');
+            throw new RuntimeException('Invalid username or password, or this account is unavailable.');
         }
 
+        $this->accounts->touchActivity($accountID, $now);
         return $account;
     }
 
@@ -71,7 +73,9 @@ final class MediaAccountAccess
             throw new RuntimeException('Invalid authenticated media upload audit record.');
         }
 
-        $mediaID = $mediaType === 'song' ? (int) ($result['songID'] ?? 0) : (int) ($result['sfxID'] ?? 0);
+        $mediaID = $mediaType === 'song'
+            ? (int) ($result['songID'] ?? 0)
+            : (int) ($result['sfxID'] ?? 0);
         if ($mediaID <= 0) {
             throw new RuntimeException('Uploaded media ID is missing.');
         }
@@ -110,7 +114,8 @@ final class MediaAccountAccess
         ]);
 
         $cleanup = $this->db->prepare(
-            'DELETE FROM ' . $this->tables->get('core_media_login_attempts') . ' WHERE attemptedAt < :before'
+            'DELETE FROM ' . $this->tables->get('core_media_login_attempts')
+            . ' WHERE attemptedAt < :before'
         );
         $cleanup->execute([':before' => $now - 604800]);
     }

@@ -83,6 +83,9 @@ jobs:
       - name: Media dashboard and SFX library
         run: php tests/media_dashboard.php
 
+      - name: Account security and deletion lifecycle
+        run: php tests/account_security.php
+
       - name: Event reward claims
         run: php tests/event_reward_claims.php
 

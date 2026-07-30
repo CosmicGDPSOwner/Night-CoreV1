@@ -7,6 +7,7 @@ use NightCore\Core\Application;
 use NightCore\Core\Config;
 use NightCore\Core\DeploymentInspector;
 use NightCore\Core\MigrationRunner;
+use NightCore\Domain\Accounts\AccountDeletionService;
 
 $root = dirname(__DIR__);
 require_once $root . '/autoload.php';
@@ -17,10 +18,11 @@ $command = $argv[1] ?? 'help';
 $printHelp = static function (): void {
     echo "Night Core V1\n\n";
     echo "Commands:\n";
-    echo "  php bin/nightcore self-test   Run DB-free core tests\n";
-    echo "  php bin/nightcore install     Prepare storage, migrate and run deployment checks\n";
-    echo "  php bin/nightcore doctor      Check production readiness\n";
-    echo "  php bin/nightcore migrate     Apply pending SQL migrations\n";
+    echo "  php bin/nightcore self-test           Run DB-free core tests\n";
+    echo "  php bin/nightcore install             Prepare storage, migrate and run deployment checks\n";
+    echo "  php bin/nightcore doctor              Check production readiness\n";
+    echo "  php bin/nightcore migrate             Apply pending SQL migrations\n";
+    echo "  php bin/nightcore accounts:purge-due  Anonymize accounts whose deletion date is due\n";
 };
 
 $runMigrations = static function (Application $app) use ($root): array {
@@ -56,7 +58,7 @@ try {
         exit(0);
     }
 
-    if (!in_array($command, ['install', 'doctor', 'migrate'], true)) {
+    if (!in_array($command, ['install', 'doctor', 'migrate', 'accounts:purge-due'], true)) {
         $printHelp();
         exit(1);
     }
@@ -77,6 +79,19 @@ try {
                 echo "Applied: {$migration}\n";
             }
         }
+        exit(0);
+    }
+
+    if ($command === 'accounts:purge-due') {
+        $service = new AccountDeletionService(
+            $app->db(),
+            $app->tables(),
+            $app->schema(),
+            $app->accountRepository(),
+            $app->passwordService()
+        );
+        $deleted = $service->purgeDue();
+        echo 'Accounts anonymized: ' . $deleted . PHP_EOL;
         exit(0);
     }
 
@@ -110,7 +125,7 @@ try {
     }
 
     exit($printDoctor($app) ? 0 : 2);
-} catch (Throwable $e) {
-    fwrite(STDERR, 'Night Core error: ' . $e->getMessage() . PHP_EOL);
+} catch (Throwable $error) {
+    fwrite(STDERR, 'Night Core error: ' . $error->getMessage() . PHP_EOL);
     exit(1);
 }

@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
+use NightCore\Core\AccountPolicy;
 use NightCore\Core\Application;
 use NightCore\Domain\Accounts\SensitiveActionConfirmationService;
 
 $root = dirname(__DIR__);
 /** @var Application $app */
 $app = require $root . '/bootstrap.php';
+$serverPolicy = AccountPolicy::load($root);
 $db = $app->db();
 $tables = $app->tables();
 $staff = $app->staffAccess();
@@ -69,10 +71,7 @@ if ($accountID > 0) {
     $seen = (int) ($_SESSION['event_seen_at'] ?? 0);
     $fingerprint = hash('sha256', substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 512));
     $account = $app->accountRepository()->findById($accountID);
-    $invalid = $started <= 0
-        || $seen <= 0
-        || $now - $seen > 1800
-        || $now - $started > 28800
+    $invalid = $serverPolicy->sessionExpired($started, $seen, $now)
         || !hash_equals((string) ($_SESSION['event_fingerprint'] ?? ''), $fingerprint)
         || $account === null
         || (int) ($account['isActive'] ?? 0) !== 1
@@ -258,6 +257,7 @@ if ($accountID > 0) {
     )->fetchAll() ?: [];
 }
 $csrfValue = $csrf();
+$sessionDescription = $serverPolicy->sessionDescription();
 header('Content-Type: text/html; charset=utf-8');
 header("Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
 header('X-Content-Type-Options: nosniff');
@@ -268,7 +268,7 @@ header('X-Frame-Options: DENY');
 </style></head><body><main><header><div><h1>Night Core events</h1><p class="muted">Event slots, rewards, claims and audit.</p></div><?php if($loggedAccount): ?><form method="post"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><input type="hidden" name="action" value="logout"><button>Sign out</button></form><?php endif; ?></header>
 <?php if($message!==''): ?><div class="notice ok"><?= $escape($message) ?></div><?php endif; ?><?php if($error!==''): ?><div class="notice err"><?= $escape($error) ?></div><?php endif; ?>
 <?php if(!$loggedAccount): ?><section class="card" style="max-width:520px;margin-inline:auto"><h2>Event management login</h2><form method="post"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><input type="hidden" name="action" value="login"><p><input name="username" placeholder="Username" autocomplete="username" required style="width:100%"></p><p><input type="password" name="password" placeholder="Password" autocomplete="current-password" required style="width:100%"></p><button>Sign in</button></form></section><?php else: ?>
-<p class="muted">Signed in as <strong><?= $escape((string)$loggedAccount['userName']) ?></strong>. Commands: <code>!event</code>, <code>!eventchange</code>, <code>!eventset</code>.</p>
+<p class="muted">Signed in as <strong><?= $escape((string)$loggedAccount['userName']) ?></strong>. <?= $escape($sessionDescription) ?> Commands: <code>!event</code>, <code>!eventchange</code>, <code>!eventset</code>.</p>
 <div class="security-state"><strong>Per-action password confirmation: <?= $requireSensitivePassword ? 'enabled' : 'disabled' ?></strong><br><span class="muted">Change this setting from <code>/dashboard.php</code>. Event-panel login always requires a password. Commands used inside Geometry Dash are not changed by this browser setting.</span></div>
 <section class="card"><h2>Events</h2><div class="wrap"><table><thead><tr><th>ID</th><th>Level</th><th>Status</th><th>Window</th><th>Rewards</th><th>Claims</th><th>Action</th></tr></thead><tbody><?php foreach($events as $event): ?><tr><td>#<?= (int)$event['eventID'] ?></td><td><?= (int)$event['levelID'] ?></td><td class="status <?= $escape((string)$event['status']) ?>"><?= $escape((string)$event['status']) ?></td><td><?= $escape($formatTime((int)$event['startsAt'])) ?><br><?= $escape($formatTime((int)$event['endsAt'])) ?></td><td><?= $escape($decodeRewards((string)$event['rewardJson'])) ?></td><td><?= (int)$event['claimCount'] ?></td><td><?php if(in_array((string)$event['status'],['active','scheduled'],true)): ?><form class="inline" method="post" onsubmit="return confirm('Change this event status?')"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><input type="hidden" name="event_id" value="<?= (int)$event['eventID'] ?>"><?php if($requireSensitivePassword): ?><input type="password" name="current_password" placeholder="Current password" autocomplete="current-password" required><?php endif; ?><button name="action" value="end">End</button><button class="danger" name="action" value="cancel">Cancel</button></form><?php endif; ?></td></tr><?php endforeach; ?><?php if($events===[]): ?><tr><td colspan="7" class="muted">No events.</td></tr><?php endif; ?></tbody></table></div></section>
 <section class="card"><h2>Reward claims / saves</h2><p class="muted">A row appears only after the server claim flow records a reward. Duplicate claims are blocked by event + account.</p><div class="wrap"><table><thead><tr><th>Event</th><th>Account</th><th>Claimed</th><th>Reward snapshot</th></tr></thead><tbody><?php foreach($claims as $claim): ?><tr><td>#<?= (int)$claim['eventID'] ?></td><td><?= $escape((string)($claim['userName']??'')) ?> #<?= (int)$claim['accountID'] ?></td><td><?= $escape($formatTime((int)$claim['claimedAt'])) ?></td><td><?= $escape($decodeRewards((string)$claim['rewardJson'])) ?></td></tr><?php endforeach; ?><?php if($claims===[]): ?><tr><td colspan="4" class="muted">No reward claims recorded.</td></tr><?php endif; ?></tbody></table></div></section>

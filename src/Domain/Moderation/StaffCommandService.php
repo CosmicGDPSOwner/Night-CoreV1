@@ -6,7 +6,7 @@ namespace NightCore\Domain\Moderation;
 
 final class StaffCommandService
 {
-    private const SYNTAX_ERROR = 'Error: incomplete command spelling';
+    private const SYNTAX_ERROR = 'temp_0_Error: incomplete command spelling';
 
     public function __construct(private ModerationService $moderation)
     {
@@ -75,8 +75,8 @@ final class StaffCommandService
         }
 
         // Never publish something that was clearly intended as a staff command.
-        // Returning a readable response also lets compatible/custom clients show
-        // the exact reason instead of a bare -1 failure.
+        // The temp_0_ prefix is understood by stock Geometry Dash 2.1+ and makes
+        // the response appear as an in-game dialog instead of a silent failure.
         return str_starts_with($command, '!') ? self::SYNTAX_ERROR : null;
     }
 

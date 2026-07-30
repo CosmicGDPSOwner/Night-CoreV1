@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NightCore\Core\AccountPolicy;
 use NightCore\Core\TableNames;
 use NightCore\Domain\Content\NewgroundsSongParser;
 use NightCore\Protocol\LevelHash;
@@ -53,6 +54,30 @@ if (LevelHash::solo2('1,5,0,123,1,0,0,0') !== '0b35d193384c953d1ff985cfe31991326
 $tables = new TableNames('demo_');
 if ($tables->raw('accounts') !== 'demo_accounts') {
     $failures[] = 'table prefix';
+}
+
+$policyRoot = sys_get_temp_dir() . '/nightcore-account-policy-' . bin2hex(random_bytes(6));
+$policyConfig = $policyRoot . '/config';
+try {
+    if (!mkdir($policyConfig, 0700, true) && !is_dir($policyConfig)) {
+        throw new RuntimeException('cannot create account policy test directory');
+    }
+    if (!AccountPolicy::load($policyRoot)->accountDeletionEnabled()) {
+        $failures[] = 'account deletion policy defaults enabled';
+    }
+    file_put_contents(
+        $policyConfig . '/account.php',
+        "<?php\nreturn ['account_deletion_enabled' => false];\n"
+    );
+    if (AccountPolicy::load($policyRoot)->accountDeletionEnabled()) {
+        $failures[] = 'account deletion policy can be disabled';
+    }
+} catch (Throwable $error) {
+    $failures[] = 'account deletion policy: ' . $error->getMessage();
+} finally {
+    @unlink($policyConfig . '/account.php');
+    @rmdir($policyConfig);
+    @rmdir($policyRoot);
 }
 
 $songParser = new NewgroundsSongParser();

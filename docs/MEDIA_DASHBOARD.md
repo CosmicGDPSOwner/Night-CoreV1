@@ -1,6 +1,8 @@
-# Public media dashboard
+# Public media tools
 
-Night Core exposes `/mediaAdmin.php` as a public media library/uploader when the server owner enables public uploads in a private server-local PHP policy file.
+Night Core exposes `/mediaTools.php` as the canonical public media library/uploader when the server owner enables public uploads in a private server-local PHP policy file.
+
+`/mediaAdmin.php` remains available as a legacy compatibility entry point for older deployments and links, but new documentation and integrations should use `/mediaTools.php`.
 
 ## Public surface
 

@@ -23,15 +23,28 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.head_ref || github.ref_name }}
 
+      - name: Detect reviewed payload
+        id: payload
+        shell: bash
+        run: |
+          if [[ -f .patch026/part-000 ]]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Reconstruct reviewed payload
+        if: steps.payload.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
           cat .patch026/part-* | base64 --decode > /tmp/patch026.tar.gz
           echo '4ed679a98afb52dfe230550953d8f8226592408c23a057ef31137a8fbbd124a7  /tmp/patch026.tar.gz' | sha256sum --check --strict
           tar -xzf /tmp/patch026.tar.gz -C .
+          git checkout HEAD -- .github/workflows/core-baseline.yml
 
       - name: Validate generated changes
+        if: steps.payload.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -41,10 +54,11 @@ jobs:
           git diff --check
 
       - name: Commit generated files
+        if: steps.payload.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf .patch026 .github/workflows/patch026-apply.yml
+          rm -rf .patch026
           git add -A
           if git diff --cached --quiet; then
             echo 'No generated changes to commit.'

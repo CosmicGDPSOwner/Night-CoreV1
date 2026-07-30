@@ -28,6 +28,7 @@ use NightCore\Domain\Moderation\ModerationRepository;
 use NightCore\Domain\Moderation\ModerationService;
 use NightCore\Domain\Moderation\StaffAccessRepository;
 use NightCore\Domain\Moderation\StaffAccessService;
+use NightCore\Domain\Moderation\StaffCommandService;
 use NightCore\Domain\Profiles\ProfileContextRepository;
 use NightCore\Domain\Profiles\ProfileRepository;
 use NightCore\Domain\Profiles\ProfileService;
@@ -179,7 +180,8 @@ final class Application
             $this->progressRepository,
             new CommentAccessPolicy($this->db, $this->tables, $this->adminAccountIDs(), $this->staffAccess()),
             $this->newgroundsSongs(),
-            $this->staffAccess()
+            $this->staffAccess(),
+            new StaffCommandService($this->moderation())
         );
     }
 

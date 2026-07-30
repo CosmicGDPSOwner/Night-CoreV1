@@ -57,26 +57,56 @@ if ($tables->raw('accounts') !== 'demo_accounts') {
 }
 
 $policyRoot = sys_get_temp_dir() . '/nightcore-account-policy-' . bin2hex(random_bytes(6));
-$policyConfig = $policyRoot . '/config';
+$legacyConfig = $policyRoot . '/config';
 try {
-    if (!mkdir($policyConfig, 0700, true) && !is_dir($policyConfig)) {
+    if (!mkdir($legacyConfig, 0700, true) && !is_dir($legacyConfig)) {
         throw new RuntimeException('cannot create account policy test directory');
     }
-    if (!AccountPolicy::load($policyRoot)->accountDeletionEnabled()) {
+
+    $defaults = AccountPolicy::load($policyRoot);
+    if (!$defaults->accountDeletionEnabled()) {
         $failures[] = 'account deletion policy defaults enabled';
     }
+    if ($defaults->sessionIdleTimeoutSeconds() !== 1800
+        || $defaults->sessionAbsoluteTimeoutSeconds() !== 28800) {
+        $failures[] = 'session policy defaults';
+    }
+
     file_put_contents(
-        $policyConfig . '/account.php',
+        $policyRoot . '/config2.php',
+        "<?php\nreturn [\n"
+        . "'account_deletion_enabled' => false,\n"
+        . "'session_idle_timeout_seconds' => 0,\n"
+        . "'session_absolute_timeout_seconds' => 0,\n"
+        . "];\n"
+    );
+    $configured = AccountPolicy::load($policyRoot);
+    if ($configured->accountDeletionEnabled()) {
+        $failures[] = 'config2 can disable account deletion';
+    }
+    if ($configured->sessionIdleTimeoutSeconds() !== 0
+        || $configured->sessionAbsoluteTimeoutSeconds() !== 0) {
+        $failures[] = 'config2 accepts eternal session values';
+    }
+    $now = time();
+    if ($configured->sessionExpired($now - 100000, $now - 100000, $now)) {
+        $failures[] = 'zero timeouts keep valid session alive';
+    }
+
+    @unlink($policyRoot . '/config2.php');
+    file_put_contents(
+        $legacyConfig . '/account.php',
         "<?php\nreturn ['account_deletion_enabled' => false];\n"
     );
     if (AccountPolicy::load($policyRoot)->accountDeletionEnabled()) {
-        $failures[] = 'account deletion policy can be disabled';
+        $failures[] = 'legacy account policy fallback';
     }
 } catch (Throwable $error) {
-    $failures[] = 'account deletion policy: ' . $error->getMessage();
+    $failures[] = 'account policy: ' . $error->getMessage();
 } finally {
-    @unlink($policyConfig . '/account.php');
-    @rmdir($policyConfig);
+    @unlink($policyRoot . '/config2.php');
+    @unlink($legacyConfig . '/account.php');
+    @rmdir($legacyConfig);
     @rmdir($policyRoot);
 }
 

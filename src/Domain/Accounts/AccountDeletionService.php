@@ -63,7 +63,8 @@ final class AccountDeletionService
         int $accountID,
         string $currentPassword,
         string $confirmedUsername,
-        int $retentionDays
+        int $retentionDays,
+        bool $requirePassword = true
     ): array {
         $this->requireTables();
         if (!in_array($retentionDays, self::RETENTION_OPTIONS, true)) {
@@ -77,8 +78,8 @@ final class AccountDeletionService
         if ($account === null || (int) ($account['isActive'] ?? 0) !== 1) {
             throw new RuntimeException('This account cannot be scheduled for deletion.');
         }
-        if ($currentPassword === ''
-            || !$this->passwords->verifyPassword($currentPassword, (string) $account['password'])) {
+        if ($requirePassword && ($currentPassword === ''
+            || !$this->passwords->verifyPassword($currentPassword, (string) $account['password']))) {
             throw new RuntimeException('Current password is incorrect.');
         }
         if (!hash_equals((string) $account['userName'], trim($confirmedUsername))) {
@@ -115,9 +116,21 @@ final class AccountDeletionService
         return $this->status($accountID);
     }
 
-    public function cancel(int $accountID): void
-    {
+    public function cancel(
+        int $accountID,
+        string $currentPassword = '',
+        bool $requirePassword = true
+    ): void {
         $this->requireTables();
+        $account = $this->accounts->findById($accountID);
+        if ($account === null || (int) ($account['isActive'] ?? 0) !== 1) {
+            throw new RuntimeException('This account cannot change deletion settings.');
+        }
+        if ($requirePassword && ($currentPassword === ''
+            || !$this->passwords->verifyPassword($currentPassword, (string) $account['password']))) {
+            throw new RuntimeException('Current password is incorrect.');
+        }
+
         $now = time();
         $this->db->beginTransaction();
         try {
@@ -247,6 +260,15 @@ final class AccountDeletionService
                     . " SET originalName = '' WHERE accountID = :accountID"
                 );
                 $uploadAudit->execute([':accountID' => $accountID]);
+            }
+            foreach (['core_account_security_preferences', 'core_account_security_audit'] as $logicalTable) {
+                if (!$this->schema->tableExists($logicalTable)) {
+                    continue;
+                }
+                $cleanup = $this->db->prepare(
+                    'DELETE FROM ' . $this->tables->get($logicalTable) . ' WHERE accountID = :accountID'
+                );
+                $cleanup->execute([':accountID' => $accountID]);
             }
 
             $this->markDeleted($accountID, $now);

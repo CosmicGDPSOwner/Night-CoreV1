@@ -204,8 +204,15 @@ final class RotationEventService
         }
         $now = time();
         $table = $this->tables->get('core_events');
-        $this->db->prepare("UPDATE {$table} SET status='ended', updatedAt=:now WHERE status IN ('scheduled','active') AND endsAt <= :now")->execute([':now'=>$now]);
-        $this->db->prepare("UPDATE {$table} SET status='active', updatedAt=:now WHERE status='scheduled' AND startsAt <= :now AND endsAt > :now")->execute([':now'=>$now]);
+        $this->db->prepare("UPDATE {$table} SET status='ended', updatedAt=:updatedAt WHERE status IN ('scheduled','active') AND endsAt <= :endsAt")->execute([
+            ':updatedAt' => $now,
+            ':endsAt' => $now,
+        ]);
+        $this->db->prepare("UPDATE {$table} SET status='active', updatedAt=:updatedAt WHERE status='scheduled' AND startsAt <= :startsAt AND endsAt > :endsAt")->execute([
+            ':updatedAt' => $now,
+            ':startsAt' => $now,
+            ':endsAt' => $now,
+        ]);
         if ($this->schema->tableExists('core_daily_levels')) {
             $this->db->prepare('DELETE FROM ' . $this->tables->get('core_daily_levels') . ' WHERE slotType = 2 AND endsAt <= :now')->execute([':now'=>$now]);
         }

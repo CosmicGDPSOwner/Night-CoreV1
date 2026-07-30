@@ -1,7 +1,6 @@
 <?php
 
 declare(strict_types=1);
-
 namespace NightCore\Domain\Accounts;
 
 use NightCore\Core\SchemaInspector;
@@ -38,9 +37,51 @@ final class AccountRepository
 
     public function create(string $userName, string $passwordHash, string $email, int $isActive, string $gjp2Hash): int
     {
+        $now = time();
         $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('accounts') . ' (userName, password, email, registerDate, isActive, gjp2) VALUES (:userName, :password, :email, :registerDate, :isActive, :gjp2)');
-        $query->execute([':userName'=>$userName,':password'=>$passwordHash,':email'=>$email,':registerDate'=>time(),':isActive'=>$isActive,':gjp2'=>$gjp2Hash]);
-        return (int) $this->db->lastInsertId();
+        $query->execute([':userName'=>$userName,':password'=>$passwordHash,':email'=>$email,':registerDate'=>$now,':isActive'=>$isActive,':gjp2'=>$gjp2Hash]);
+        $accountID = (int) $this->db->lastInsertId();
+        $this->touchActivity($accountID, $now);
+        return $accountID;
+    }
+
+    public function registrationBlocked(string $ip, int $maxPerIp, int $maxPerSubnet, int $windowSeconds, string $hashKey): bool
+    {
+        if (!$this->schema->tableExists('core_registration_attempts') || $windowSeconds <= 0) return false;
+        $cutoff = time() - $windowSeconds;
+        $table = $this->tables->get('core_registration_attempts');
+        if ($maxPerIp > 0) {
+            $q = $this->db->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE ipHash = :hash AND attemptedAt > :cutoff');
+            $q->execute([':hash' => $this->registrationHash($ip, $hashKey), ':cutoff' => $cutoff]);
+            if ((int) $q->fetchColumn() >= $maxPerIp) return true;
+        }
+        if ($maxPerSubnet > 0) {
+            $q = $this->db->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE subnetHash = :hash AND attemptedAt > :cutoff');
+            $q->execute([':hash' => $this->registrationHash($this->registrationSubnet($ip), $hashKey), ':cutoff' => $cutoff]);
+            if ((int) $q->fetchColumn() >= $maxPerSubnet) return true;
+        }
+        return false;
+    }
+
+    public function recordRegistrationAttempt(string $ip, bool $success, string $reason, string $hashKey): void
+    {
+        if (!$this->schema->tableExists('core_registration_attempts')) return;
+        $q = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_registration_attempts') . ' (ipHash, subnetHash, success, reason, attemptedAt) VALUES (:ipHash, :subnetHash, :success, :reason, :attemptedAt)');
+        $q->execute([
+            ':ipHash' => $this->registrationHash($ip, $hashKey),
+            ':subnetHash' => $this->registrationHash($this->registrationSubnet($ip), $hashKey),
+            ':success' => $success ? 1 : 0,
+            ':reason' => substr($reason, 0, 32),
+            ':attemptedAt' => time(),
+        ]);
+    }
+
+    public function touchActivity(int $accountID, ?int $at = null): void
+    {
+        if ($accountID <= 0 || !$this->schema->tableExists('core_account_lifecycle')) return;
+        $at ??= time();
+        $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_account_lifecycle') . ' (accountID, lastActiveAt, retentionDays, deletionScheduledAt, softDeletedAt, updatedAt) VALUES (:accountID, :lastActiveAt, 14, 0, 0, :updatedAt) ON DUPLICATE KEY UPDATE lastActiveAt = VALUES(lastActiveAt), deletionScheduledAt = 0, softDeletedAt = 0, updatedAt = VALUES(updatedAt)');
+        $query->execute([':accountID' => $accountID, ':lastActiveAt' => $at, ':updatedAt' => $at]);
     }
 
     public function updatePasswordHash(int $accountID, string $hash): void { $q=$this->db->prepare('UPDATE '.$this->tables->get('accounts').' SET password = :hash WHERE accountID = :accountID'); $q->execute([':hash'=>$hash,':accountID'=>$accountID]); }
@@ -59,5 +100,23 @@ final class AccountRepository
         $q=$this->db->prepare('SELECT userID FROM '.$this->tables->get('users').' WHERE extID = :udid ORDER BY userID ASC LIMIT 1'); $q->execute([':udid'=>$udid]); $old=$q->fetchColumn();
         if ($old===false || (int)$old===$userID) return;
         $q=$this->db->prepare('UPDATE '.$this->tables->get('levels').' SET userID = :userID, extID = :accountID WHERE userID = :oldUserID'); $q->execute([':userID'=>$userID,':accountID'=>$accountID,':oldUserID'=>(int)$old]);
+    }
+
+    private function registrationHash(string $value, string $key): string
+    {
+        return hash_hmac('sha256', $value, $key !== '' ? $key : 'nightcore-registration');
+    }
+
+    private function registrationSubnet(string $ip): string
+    {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $parts = explode('.', $ip);
+            return $parts[0] . '.' . $parts[1] . '.' . $parts[2] . '.0/24';
+        }
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            $packed = inet_pton($ip);
+            if ($packed !== false) return bin2hex(substr($packed, 0, 8)) . '::/64';
+        }
+        return 'unknown';
     }
 }

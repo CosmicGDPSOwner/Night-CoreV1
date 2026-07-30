@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NightCore\Core\AccountPolicy;
 use NightCore\Core\Application;
 use NightCore\Core\ClientIp;
 use NightCore\Core\Config;
@@ -9,10 +10,12 @@ use NightCore\Core\MediaAccountAccess;
 use NightCore\Core\PublicMediaUploadGuard;
 use NightCore\Domain\Accounts\AccountDeletionService;
 use NightCore\Domain\Accounts\SensitiveActionConfirmationService;
+use PDO;
 
 $root = dirname(__DIR__);
 /** @var Application $app */
 $app = require $root . '/bootstrap.php';
+$serverPolicy = AccountPolicy::load($root);
 $policy = $app->mediaPolicy();
 $publicUploads = $policy->publicUploadsEnabled();
 $guard = new PublicMediaUploadGuard($app->db(), $app->tables(), $policy);
@@ -51,9 +54,6 @@ session_set_cookie_params([
 ]);
 session_start();
 
-const DASHBOARD_IDLE_TIMEOUT = 1800;
-const DASHBOARD_ABSOLUTE_TIMEOUT = 28800;
-
 $escape = static fn (string $value): string => htmlspecialchars(
     $value,
     ENT_QUOTES | ENT_SUBSTITUTE,
@@ -65,6 +65,8 @@ $authPanelOpen = false;
 $authTab = 'login';
 $deletionStatus = null;
 $securityStatus = null;
+$requestedTab = isset($_GET['tab']) && is_string($_GET['tab']) ? strtolower($_GET['tab']) : 'media';
+$activeTab = in_array($requestedTab, ['media', 'rotations'], true) ? $requestedTab : 'media';
 
 $csrf = static function (): string {
     if (!isset($_SESSION['dashboard_csrf'])
@@ -137,10 +139,7 @@ if ($loggedAccountID > 0) {
     $issuedAt = (int) ($_SESSION['dashboard_issued_at'] ?? 0);
     $lastSeen = (int) ($_SESSION['dashboard_last_seen'] ?? 0);
     $sessionFingerprint = (string) ($_SESSION['dashboard_fingerprint'] ?? '');
-    $sessionInvalid = $issuedAt <= 0
-        || $lastSeen <= 0
-        || $now - $lastSeen > DASHBOARD_IDLE_TIMEOUT
-        || $now - $issuedAt > DASHBOARD_ABSOLUTE_TIMEOUT
+    $sessionInvalid = $serverPolicy->sessionExpired($issuedAt, $lastSeen, $now)
         || !hash_equals($fingerprint, $sessionFingerprint)
         || $loggedAccount === null
         || (int) ($loggedAccount['isActive'] ?? 0) !== 1
@@ -355,8 +354,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 }
 
+$deletionEnabled = $deletion->enabled();
 if ($loggedAccountID > 0 && $loggedAccount !== null) {
-    if ($deletionStatus === null) {
+    if ($deletionEnabled && $deletionStatus === null) {
         try {
             $deletionStatus = $deletion->status($loggedAccountID);
         } catch (Throwable) {
@@ -379,7 +379,44 @@ $songLimitMiB = max(1, (int) floor($app->customSongs()->storage()->maxBytes() / 
 $sfxLimitMiB = max(1, (int) floor($app->customSfx()->storage()->maxBytes() / 1048576));
 $songs = $app->customSongs()->list(100);
 $sfxRows = $app->customSfx()->list(100);
+
+/** @var array<int,array<string,mixed>|null> $rotationSlots */
+$rotationSlots = [0 => null, 1 => null, 2 => null];
+$rotationError = '';
+if ($activeTab === 'rotations') {
+    try {
+        if (!$app->schema()->tableExists('core_daily_levels')
+            || !$app->schema()->tableExists('levels')) {
+            throw new RuntimeException('Rotation data is not available yet.');
+        }
+        $rotationQuery = $app->db()->prepare(
+            'SELECT d.slotType, d.slotID, d.levelID, d.startsAt, d.endsAt,'
+            . " COALESCE(NULLIF(l.levelName, ''), 'Unnamed level') AS levelName,"
+            . " COALESCE(NULLIF(l.userName, ''), 'Unknown author') AS authorName"
+            . ' FROM ' . $app->tables()->get('core_daily_levels') . ' d'
+            . ' LEFT JOIN ' . $app->tables()->get('levels') . ' l ON l.levelID = d.levelID'
+            . ' WHERE d.slotType IN (0, 1, 2)'
+            . ' AND d.startsAt <= :startedAt'
+            . ' AND (d.endsAt = 0 OR d.endsAt > :endsAt)'
+            . ' ORDER BY d.slotType ASC, d.startsAt DESC, d.slotID DESC'
+        );
+        $rotationQuery->execute([
+            ':startedAt' => $now,
+            ':endsAt' => $now,
+        ]);
+        foreach ($rotationQuery->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $slotType = (int) ($row['slotType'] ?? -1);
+            if (array_key_exists($slotType, $rotationSlots) && $rotationSlots[$slotType] === null) {
+                $rotationSlots[$slotType] = $row;
+            }
+        }
+    } catch (Throwable $exception) {
+        $rotationError = $exception->getMessage();
+    }
+}
+
 $csrfValue = $csrf();
+$sessionDescription = $serverPolicy->sessionDescription();
 
 header('Content-Type: text/html; charset=utf-8');
 header("Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
@@ -394,16 +431,37 @@ header('X-Frame-Options: DENY');
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Night Core dashboard</title>
 <style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#090b10;color:#eef2ff;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1180px;margin:0 auto;padding:28px 18px 60px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.brand{min-width:0}.brand h1{font-size:27px;margin:0}.brand p{margin:4px 0 0;color:#98a2b3}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:#11151d;border:1px solid #252b38;border-radius:16px;padding:20px;box-shadow:0 10px 30px #0004}.wide{grid-column:1/-1}h2,h3{margin:0 0 14px}h2{font-size:18px}h3{font-size:16px}label{display:block;margin:12px 0 5px;color:#cbd5e1;font-weight:650}input,select{width:100%;padding:10px 12px;border-radius:9px;border:1px solid #384152;background:#090c12;color:#fff}input[type=checkbox]{width:auto;margin:0}button{border:0;border-radius:9px;padding:10px 14px;background:#6d5dfc;color:#fff;font-weight:750;cursor:pointer;margin-top:14px}.row{display:flex;gap:12px;align-items:end}.row>div{flex:1}.notice{padding:12px 14px;border-radius:11px;margin-bottom:16px}.ok{background:#143620;border:1px solid #245a35}.err{background:#421d22;border:1px solid #71303a}.muted,small{color:#98a2b3}.metric{font-size:27px;font-weight:800}.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#222938;color:#cbd5e1;font-size:12px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #252b38;vertical-align:middle}th{color:#98a2b3;font-size:12px;text-transform:uppercase;letter-spacing:.04em}code{font-size:12px;word-break:break-all}.account-button{margin:0;white-space:nowrap;display:flex;align-items:center;gap:8px}.account-dot{width:8px;height:8px;border-radius:50%;background:#3ddc84}.locked{text-align:center;padding-block:28px}.locked button{margin-top:8px}dialog{width:min(560px,calc(100vw - 28px));max-height:calc(100vh - 32px);overflow:auto;border:1px solid #303849;border-radius:18px;padding:0;background:#11151d;color:#eef2ff;box-shadow:0 24px 80px #000b}dialog::backdrop{background:#03050acc;backdrop-filter:blur(5px)}.dialog-shell{padding:20px}.dialog-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.dialog-header h2{margin:0}.close-button{margin:0;padding:5px 10px;background:#222938;font-size:20px;line-height:1}.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0}.tab{margin:0;background:#222938;color:#aeb8ca}.tab.active{background:#6d5dfc;color:#fff}.auth-panel[hidden]{display:none}.auth-panel p{margin-top:0}.secondary{background:#2a3140}.danger{background:#9b2635}.account-summary{padding:13px;border:1px solid #303849;background:#0b0e14;border-radius:12px;margin:16px 0}.account-summary strong{display:block;font-size:18px}.profile-section{border-top:1px solid #303849;margin-top:20px;padding-top:20px}.scheduled{padding:12px;border-radius:10px;background:#3a2a13;border:1px solid #705225}.switch-row{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #303849;border-radius:12px;background:#0b0e14}.switch-row label{margin:0}.warning{padding:10px 12px;border-radius:10px;background:#3a2a13;border:1px solid #705225;color:#f8d49a}@media(max-width:780px){.grid{grid-template-columns:1fr}.row{display:block}.wide{grid-column:auto}.table-wrap{overflow-x:auto}header{align-items:flex-start}.account-button{padding:9px 11px}.brand h1{font-size:23px}}
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#090b10;color:#eef2ff;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1180px;margin:0 auto;padding:28px 18px 60px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.brand{min-width:0}.brand h1{font-size:27px;margin:0}.brand p{margin:4px 0 0;color:#98a2b3}.page-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}.page-tab{display:inline-flex;align-items:center;padding:9px 13px;border-radius:10px;background:#171c26;border:1px solid #2c3443;color:#aeb8ca;text-decoration:none;font-weight:750}.page-tab.active{background:#6d5dfc;border-color:#6d5dfc;color:#fff}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:#11151d;border:1px solid #252b38;border-radius:16px;padding:20px;box-shadow:0 10px 30px #0004}.wide{grid-column:1/-1}h2,h3{margin:0 0 14px}h2{font-size:18px}h3{font-size:16px}label{display:block;margin:12px 0 5px;color:#cbd5e1;font-weight:650}input,select{width:100%;padding:10px 12px;border-radius:9px;border:1px solid #384152;background:#090c12;color:#fff}input[type=checkbox]{width:auto;margin:0}button{border:0;border-radius:9px;padding:10px 14px;background:#6d5dfc;color:#fff;font-weight:750;cursor:pointer;margin-top:14px}.row{display:flex;gap:12px;align-items:end}.row>div{flex:1}.notice{padding:12px 14px;border-radius:11px;margin-bottom:16px}.ok{background:#143620;border:1px solid #245a35}.err{background:#421d22;border:1px solid #71303a}.muted,small{color:#98a2b3}.metric{font-size:27px;font-weight:800}.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#222938;color:#cbd5e1;font-size:12px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #252b38;vertical-align:middle}th{color:#98a2b3;font-size:12px;text-transform:uppercase;letter-spacing:.04em}code{font-size:12px;word-break:break-all}.account-button{margin:0;white-space:nowrap;display:flex;align-items:center;gap:8px}.account-dot{width:8px;height:8px;border-radius:50%;background:#3ddc84}.locked{text-align:center;padding-block:28px}.locked button{margin-top:8px}.rotation-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.rotation-card{min-height:150px}.rotation-line{font-size:17px;font-weight:800;overflow-wrap:anywhere}.rotation-kind{display:block;margin-bottom:12px;color:#98a2b3;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}dialog{width:min(560px,calc(100vw - 28px));max-height:calc(100vh - 32px);overflow:auto;border:1px solid #303849;border-radius:18px;padding:0;background:#11151d;color:#eef2ff;box-shadow:0 24px 80px #000b}dialog::backdrop{background:#03050acc;backdrop-filter:blur(5px)}.dialog-shell{padding:20px}.dialog-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.dialog-header h2{margin:0}.close-button{margin:0;padding:5px 10px;background:#222938;font-size:20px;line-height:1}.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0}.tab{margin:0;background:#222938;color:#aeb8ca}.tab.active{background:#6d5dfc;color:#fff}.auth-panel[hidden]{display:none}.auth-panel p{margin-top:0}.secondary{background:#2a3140}.danger{background:#9b2635}.account-summary{padding:13px;border:1px solid #303849;background:#0b0e14;border-radius:12px;margin:16px 0}.account-summary strong{display:block;font-size:18px}.profile-section{border-top:1px solid #303849;margin-top:20px;padding-top:20px}.scheduled{padding:12px;border-radius:10px;background:#3a2a13;border:1px solid #705225}.switch-row{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #303849;border-radius:12px;background:#0b0e14}.switch-row label{margin:0}.warning{padding:10px 12px;border-radius:10px;background:#3a2a13;border:1px solid #705225;color:#f8d49a}@media(max-width:900px){.rotation-grid{grid-template-columns:1fr}}@media(max-width:780px){.grid{grid-template-columns:1fr}.row{display:block}.wide{grid-column:auto}.table-wrap{overflow-x:auto}header{align-items:flex-start}.account-button{padding:9px 11px}.brand h1{font-size:23px}}
 </style>
 </head>
 <body><main>
 <header>
-<div class="brand"><h1>Night Core dashboard</h1><p>Public songs and SFX library. Sign in only when you need account features.</p></div>
+<div class="brand"><h1>Night Core dashboard</h1><p>Public GDPS content and account features.</p></div>
 <button type="button" class="account-button" data-open-account><?php if ($loggedAccount !== null): ?><span class="account-dot"></span><?= $escape((string) $loggedAccount['userName']) ?><?php else: ?>Sign in / Register<?php endif; ?></button>
 </header>
+<nav class="page-tabs" aria-label="Dashboard sections">
+<a class="page-tab<?= $activeTab === 'media' ? ' active' : '' ?>" href="dashboard.php?tab=media">Songs / SFX</a>
+<a class="page-tab<?= $activeTab === 'rotations' ? ' active' : '' ?>" href="dashboard.php?tab=rotations">Daily / Weekly / Event</a>
+</nav>
 <?php if ($message !== ''): ?><div class="notice ok"><?= $escape($message) ?></div><?php endif; ?>
 <?php if ($error !== ''): ?><div class="notice err"><?= $escape($error) ?></div><?php endif; ?>
+
+<?php if ($activeTab === 'rotations'): ?>
+<section class="card" style="margin-bottom:16px"><h2>Current GDPS rotations</h2><p class="muted">Active Daily, Weekly and Event slots are read directly from this GDPS.</p></section>
+<?php if ($rotationError !== ''): ?><div class="notice err"><?= $escape($rotationError) ?></div><?php endif; ?>
+<div class="rotation-grid">
+<?php foreach ([0 => 'Daily', 1 => 'Weekly', 2 => 'Event'] as $slotType => $label): $slot = $rotationSlots[$slotType]; ?>
+<section class="card rotation-card">
+<span class="rotation-kind"><?= $escape($label) ?></span>
+<?php if ($slot === null): ?>
+<p class="muted">No active <?= $escape($label) ?> level.</p>
+<?php else: ?>
+<div class="rotation-line"><?= $escape((string) $slot['levelName']) ?> / <?= $escape((string) $slot['authorName']) ?> / #<?= (int) $slot['levelID'] ?></div>
+<?php endif; ?>
+</section>
+<?php endforeach; ?>
+</div>
+<?php else: ?>
 <div class="grid">
 <section class="card"><h2>Upload limits</h2><div class="row"><div><span class="pill">Songs</span><div class="metric"><?= $songLimitMiB ?> MiB</div></div><div><span class="pill">SFX</span><div class="metric"><?= $sfxLimitMiB ?> MiB</div></div></div><p class="muted">Files are validated by the server before they are stored.</p></section>
 <section class="card"><h2>Library</h2><div class="row"><div><span class="pill">Songs</span><div class="metric"><?= count($songs) ?></div></div><div><span class="pill">SFX</span><div class="metric"><?= count($sfxRows) ?></div></div></div><p class="muted">Browse public media without signing in.</p></section>
@@ -419,13 +477,14 @@ header('X-Frame-Options: DENY');
 <section class="card wide"><h2>Local songs</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>Song</th><th>Size</th><th>Download</th></tr></thead><tbody><?php foreach ($songs as $song): ?><tr><td><strong><?= (int) $song['songID'] ?></strong></td><td><?= $escape((string) ($song['name'] ?? '(reserved)')) ?><br><small><?= $escape((string) ($song['authorName'] ?? '')) ?></small></td><td><?= $escape((string) ($song['size'] ?? '0')) ?> MB</td><td><code><?= $escape((string) ($song['download'] ?? '')) ?></code></td></tr><?php endforeach; ?><?php if ($songs === []): ?><tr><td colspan="4" class="muted">No local songs yet.</td></tr><?php endif; ?></tbody></table></div></section>
 <section class="card wide"><h2>Local SFX</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>SFX</th><th>Size</th><th>Download</th></tr></thead><tbody><?php foreach ($sfxRows as $sfx): ?><tr><td><strong><?= (int) $sfx['sfxID'] ?></strong></td><td><?= $escape((string) $sfx['name']) ?></td><td><?= number_format(((int) $sfx['bytes']) / 1048576, 2, '.', '') ?> MB</td><td><code><?= $escape((string) $sfx['download']) ?></code></td></tr><?php endforeach; ?><?php if ($sfxRows === []): ?><tr><td colspan="4" class="muted">No local SFX yet.</td></tr><?php endif; ?></tbody></table></div></section>
 </div>
+<?php endif; ?>
 
 <dialog id="account-dialog" data-open="<?= $authPanelOpen ? '1' : '0' ?>" data-tab="<?= $escape($authTab) ?>">
 <div class="dialog-shell">
 <div class="dialog-header"><div><span class="pill">GDPS account</span><h2><?= $loggedAccount !== null ? 'Your profile' : 'Account access' ?></h2></div><button type="button" class="close-button" data-close-account aria-label="Close">×</button></div>
 <?php if ($loggedAccount !== null): ?>
 <div class="account-summary"><strong><?= $escape((string) $loggedAccount['userName']) ?></strong><span class="muted">Account ID <?= (int) $loggedAccount['accountID'] ?></span></div>
-<p class="muted">This secure session expires after 30 minutes of inactivity or 8 hours total.</p>
+<p class="muted"><?= $escape($sessionDescription) ?></p>
 <form method="post"><input type="hidden" name="action" value="logout"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><button type="submit" class="secondary">Sign out</button></form>
 
 <div class="profile-section">
@@ -445,7 +504,9 @@ header('X-Frame-Options: DENY');
 
 <div class="profile-section">
 <h3>Account deletion</h3>
-<?php if ($deletionStatus === null): ?>
+<?php if (!$deletionEnabled): ?>
+<p class="muted">Account deletion is disabled by the server owner.</p>
+<?php elseif ($deletionStatus === null): ?>
 <p class="muted">Account deletion settings are temporarily unavailable.</p>
 <?php elseif ((int) $deletionStatus['deletionScheduledAt'] > 0): ?>
 <div class="scheduled"><strong>Deletion scheduled</strong><br><span class="muted"><?= $escape(gmdate('Y-m-d H:i', (int) $deletionStatus['deletionScheduledAt'])) ?> UTC</span></div>

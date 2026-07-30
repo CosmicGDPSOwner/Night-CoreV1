@@ -30,8 +30,29 @@ final class ModerationService
     public function suggestStars(int $accountID, string $gjp, string $gjp2, string $ip, int $levelID, int $stars, int $feature): string
     {
         if ($levelID <= 0 || !$this->authenticator->verify($accountID, $gjp, $gjp2, $ip)) return '-1';
-        $allowed = $this->has($accountID, 'levels.suggest', 'roleLevel');
-        if (!$allowed) return '-1';
+
+        // Some Geometry Dash clients use suggestGJStars20.php even for accounts
+        // that are allowed to rate. Preserve ordinary suggestions for suggest-only
+        // staff, but promote this request to a real rate when the account has
+        // levels.rate (or legacy canRate). This keeps the stock moderator panel
+        // functional without requiring a modified client.
+        if ($this->has($accountID, 'levels.rate', 'canRate')) {
+            $stars = max(0, min(10, $stars));
+            [$difficulty, $auto, $demon] = $this->difficultyFromStars($stars);
+            $ratedFeature = $this->has($accountID, 'levels.feature', 'canFeature') && $feature > 0 ? 1 : 0;
+            return $this->moderation->rate(
+                $levelID,
+                $accountID,
+                $stars,
+                $ratedFeature,
+                0,
+                $difficulty,
+                $auto,
+                $demon
+            ) ? '1' : '-1';
+        }
+
+        if (!$this->has($accountID, 'levels.suggest', 'roleLevel')) return '-1';
         $this->moderation->suggest($levelID, $accountID, max(0, min(10, $stars)), $feature > 0 ? 1 : 0);
         return '1';
     }

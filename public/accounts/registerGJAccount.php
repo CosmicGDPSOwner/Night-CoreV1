@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use NightCore\Core\ClientIp;
+use NightCore\Core\Config;
 use NightCore\Core\Request;
 use NightCore\Core\Response;
 
@@ -12,7 +14,8 @@ try {
     $result = $app->accounts()->register(
         Request::postTrimmed('userName'),
         Request::post('password'),
-        Request::postTrimmed('email')
+        Request::postTrimmed('email'),
+        ClientIp::detect(Config::getBool('TRUST_PROXY_HEADERS', false))
     );
 
     Response::gd((string) $result);

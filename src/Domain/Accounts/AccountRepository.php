@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NightCore\Domain\Accounts;
 
+use NightCore\Core\AccountPolicy;
 use NightCore\Core\SchemaInspector;
 use NightCore\Core\TableNames;
 use PDO;
@@ -58,6 +59,9 @@ final class AccountRepository
 
     public function isDeletionDue(int $accountID, ?int $now = null): bool
     {
+        if (!AccountPolicy::load(dirname(__DIR__, 3))->accountDeletionEnabled()) {
+            return false;
+        }
         if ($accountID <= 0 || !$this->schema->tableExists('core_account_lifecycle')) {
             return false;
         }

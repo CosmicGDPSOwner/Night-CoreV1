@@ -110,7 +110,7 @@ try {
     $encoded = $randomPrefix() . $encodedBody;
     $hash = sha1($encodedBody . 'pC26fpYaQCtg');
 
-    Response::gd(($slotID + 200001) . '|10|' . $encoded . '|' . $hash);
+    Response::gd(($slotID + 200000) . '|10|' . $encoded . '|' . $hash);
 } catch (Throwable $e) {
     error_log('Night Core daily endpoint failed: ' . $e->getMessage());
     Response::gd('-1');

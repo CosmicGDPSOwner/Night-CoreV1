@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+
 namespace NightCore\Core;
 
 use PDO;
@@ -27,11 +28,7 @@ final class Database
             return new PDO($dsn, $config['user'], $config['password'], [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                // PHP 8.5 native MySQL prepares reject repeated named placeholders.
-                // Night Core has legacy queries that intentionally reuse a value,
-                // so emulation keeps parameter binding portable until all queries
-                // have been migrated to unique placeholder names.
-                PDO::ATTR_EMULATE_PREPARES => true,
+                PDO::ATTR_EMULATE_PREPARES => false,
             ]);
         } catch (PDOException $e) {
             throw new RuntimeException('Database connection failed.', 0, $e);

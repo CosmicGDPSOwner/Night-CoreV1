@@ -6,6 +6,7 @@ use NightCore\Core\Application;
 use NightCore\Core\MediaAccountAccess;
 use NightCore\Core\MigrationRunner;
 use NightCore\Domain\Accounts\AccountDeletionService;
+use NightCore\Domain\Accounts\SensitiveActionConfirmationService;
 
 $root = dirname(__DIR__);
 require_once $root . '/autoload.php';
@@ -59,6 +60,29 @@ try {
     }
     $assert($injectionLoginRejected, 'dashboard login resists injection username');
 
+    $confirmation = new SensitiveActionConfirmationService(
+        $db,
+        $tables,
+        $app->schema(),
+        $app->accountRepository(),
+        $app->passwordService()
+    );
+    $defaultSecurity = $confirmation->status($accountID);
+    $assert($defaultSecurity['requirePassword'] === true, 'sensitive action password confirmation defaults on');
+    $assert($confirmation->requiresPassword($accountID), 'default confirmation policy is fail-closed');
+
+    $wrongSettingPasswordRejected = false;
+    try {
+        $confirmation->save($accountID, 'wrong-password', false);
+    } catch (RuntimeException) {
+        $wrongSettingPasswordRejected = true;
+    }
+    $assert($wrongSettingPasswordRejected, 'security setting itself always requires current password');
+
+    $disabledSecurity = $confirmation->save($accountID, $password, false);
+    $assert($disabledSecurity['requirePassword'] === false, 'account can disable repeated sensitive action prompts');
+    $assert(!$confirmation->requiresPassword($accountID), 'disabled preference is returned to admin panels');
+
     $deletion = new AccountDeletionService(
         $db,
         $tables,
@@ -67,31 +91,54 @@ try {
         $app->passwordService()
     );
 
+    $wrongUsernameRejectedWithoutPassword = false;
+    try {
+        $deletion->schedule($accountID, 'not-used', "' OR 1=1 --", 14, false);
+    } catch (RuntimeException) {
+        $wrongUsernameRejectedWithoutPassword = true;
+    }
+    $assert($wrongUsernameRejectedWithoutPassword, 'exact username remains mandatory when password prompts are disabled');
+
+    $scheduledWithoutPassword = $deletion->schedule($accountID, 'wrong-password', $username, 14, false);
+    $assert((int) $scheduledWithoutPassword['retentionDays'] === 14, 'deletion can be scheduled without repeated password when preference is off');
+    $deletion->cancel($accountID, '', false);
+    $assert((int) $deletion->status($accountID)['deletionScheduledAt'] === 0, 'deletion can be cancelled without repeated password when preference is off');
+
+    $enabledSecurity = $confirmation->save($accountID, $password, true);
+    $assert($enabledSecurity['requirePassword'] === true, 'account can re-enable sensitive action password confirmation');
+
     $wrongPasswordRejected = false;
     try {
-        $deletion->schedule($accountID, 'wrong-password', $username, 14);
+        $deletion->schedule($accountID, 'wrong-password', $username, 14, true);
     } catch (RuntimeException) {
         $wrongPasswordRejected = true;
     }
-    $assert($wrongPasswordRejected, 'account deletion requires current password');
+    $assert($wrongPasswordRejected, 'account deletion requires current password when preference is on');
 
     $wrongUsernameRejected = false;
     try {
-        $deletion->schedule($accountID, $password, "' OR 1=1 --", 14);
+        $deletion->schedule($accountID, $password, "' OR 1=1 --", 14, true);
     } catch (RuntimeException) {
         $wrongUsernameRejected = true;
     }
     $assert($wrongUsernameRejected, 'account deletion requires exact username confirmation');
 
-    $scheduled = $deletion->schedule($accountID, $password, $username, 14);
+    $scheduled = $deletion->schedule($accountID, $password, $username, 14, true);
     $assert((int) $scheduled['retentionDays'] === 14, 'selected deletion period saved');
     $assert((int) $scheduled['deletionScheduledAt'] > time(), 'future deletion timestamp saved');
 
-    $deletion->cancel($accountID);
+    $wrongCancelPasswordRejected = false;
+    try {
+        $deletion->cancel($accountID, 'wrong-password', true);
+    } catch (RuntimeException) {
+        $wrongCancelPasswordRejected = true;
+    }
+    $assert($wrongCancelPasswordRejected, 'deletion cancellation requires password when preference is on');
+    $deletion->cancel($accountID, $password, true);
     $cancelled = $deletion->status($accountID);
     $assert((int) $cancelled['deletionScheduledAt'] === 0, 'scheduled deletion can be cancelled');
 
-    $deletion->schedule($accountID, $password, $username, 7);
+    $deletion->schedule($accountID, $password, $username, 7, true);
     $forceDue = $db->prepare(
         'UPDATE ' . $tables->get('core_account_lifecycle')
         . ' SET deletionScheduledAt = :scheduledAt WHERE accountID = :accountID'
@@ -117,11 +164,20 @@ try {
     $assert(is_array($anonymized) && (string) $anonymized['email'] === '', 'anonymized account email removed');
     $assert(is_array($anonymized) && str_starts_with((string) $anonymized['userName'], 'deleted_'), 'anonymized account username replaced');
     $assert(is_array($anonymized) && !$app->passwordService()->verifyPassword($password, (string) $anonymized['password']), 'original password no longer works');
+
+    $preferenceCount = $db->prepare(
+        'SELECT COUNT(*) FROM ' . $tables->get('core_account_security_preferences')
+        . ' WHERE accountID = :accountID'
+    );
+    $preferenceCount->execute([':accountID' => $accountID]);
+    $assert((int) $preferenceCount->fetchColumn() === 0, 'account security preference removed during anonymization');
 } catch (Throwable $error) {
     $failures[] = 'exception: ' . $error->getMessage();
 } finally {
     if ($accountID > 0) {
         foreach ([
+            'core_account_security_audit',
+            'core_account_security_preferences',
             'core_account_deletion_audit',
             'core_account_lifecycle',
             'core_media_login_attempts',

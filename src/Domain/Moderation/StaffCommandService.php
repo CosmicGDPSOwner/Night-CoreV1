@@ -63,8 +63,12 @@ final class StaffCommandService
             };
         }
 
-        if ($this->rotations !== null && preg_match('/^!(daily|weekly)$/i', $command, $matches) === 1) {
-            return $this->rotations->scheduleRotation($accountID, $gjp, $gjp2, $ip, $levelID, strtolower($matches[1]));
+        if ($this->rotations !== null && preg_match('/^!(daily|weekly)(?:\s+(now|force))?$/i', $command, $matches) === 1) {
+            $type = strtolower($matches[1]);
+            $forced = isset($matches[2]) && $matches[2] !== '';
+            return $forced
+                ? $this->rotations->forceRotationNow($accountID, $gjp, $gjp2, $ip, $levelID, $type)
+                : $this->rotations->scheduleRotation($accountID, $gjp, $gjp2, $ip, $levelID, $type);
         }
 
         if ($this->rotations !== null && preg_match('/^!(event|eventchange|eventset)(?:\s+(.+))?$/i', $command, $matches) === 1) {

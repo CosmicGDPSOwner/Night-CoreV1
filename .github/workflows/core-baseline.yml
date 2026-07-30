@@ -86,6 +86,9 @@ jobs:
       - name: Account security and deletion lifecycle
         run: php tests/account_security.php
 
+      - name: Web security module
+        run: php tests/web_security.php
+
       - name: Event reward claims
         run: php tests/event_reward_claims.php
 

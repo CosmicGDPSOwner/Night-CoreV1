@@ -6,6 +6,8 @@ namespace NightCore\Domain\Moderation;
 
 final class StaffCommandService
 {
+    private const SYNTAX_ERROR = 'Error: incomplete command spelling';
+
     public function __construct(private ModerationService $moderation)
     {
     }
@@ -32,7 +34,7 @@ final class StaffCommandService
         if (preg_match('/^!(rate|feature|epic|legendary|mythic)\s+(\d{1,2})$/i', $command, $matches) === 1) {
             $stars = (int) $matches[2];
             if ($stars < 1 || $stars > 10) {
-                return '-1';
+                return self::SYNTAX_ERROR;
             }
             $tier = strtolower($matches[1]);
             return match ($tier) {
@@ -41,7 +43,7 @@ final class StaffCommandService
                 'epic' => $this->moderation->rateTier($accountID, $gjp, $gjp2, $ip, $levelID, $stars, 1, 1),
                 'legendary' => $this->moderation->rateTier($accountID, $gjp, $gjp2, $ip, $levelID, $stars, 1, 2),
                 'mythic' => $this->moderation->rateTier($accountID, $gjp, $gjp2, $ip, $levelID, $stars, 1, 3),
-                default => '-1',
+                default => self::SYNTAX_ERROR,
             };
         }
 
@@ -68,13 +70,14 @@ final class StaffCommandService
                 'unban' => $this->moderation->setAccountBan($accountID, $gjp, $gjp2, $ip, $userName, false),
                 'leaderboardban' => $this->moderation->setLeaderboardBan($accountID, $gjp, $gjp2, $ip, $userName, true),
                 'leaderboardunban' => $this->moderation->setLeaderboardBan($accountID, $gjp, $gjp2, $ip, $userName, false),
-                default => '-1',
+                default => self::SYNTAX_ERROR,
             };
         }
 
-        // Any comment starting with ! is treated as an attempted staff command and is
-        // never published accidentally when it has invalid syntax or an unknown verb.
-        return str_starts_with($command, '!') ? '-1' : null;
+        // Never publish something that was clearly intended as a staff command.
+        // Returning a readable response also lets compatible/custom clients show
+        // the exact reason instead of a bare -1 failure.
+        return str_starts_with($command, '!') ? self::SYNTAX_ERROR : null;
     }
 
     private function normalizeCommand(string $comment): ?string

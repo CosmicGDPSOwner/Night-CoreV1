@@ -7,7 +7,6 @@ use NightCore\Core\Config;
 use NightCore\Core\Request;
 use NightCore\Core\Response;
 use NightCore\Protocol\LevelHash;
-use PDO;
 
 try {
     /** @var NightCore\Core\Application $app */

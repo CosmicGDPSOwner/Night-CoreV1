@@ -25,6 +25,8 @@ $tables = $app->tables();
 $username = 'Sec' . bin2hex(random_bytes(4));
 $password = 'NightCore-Test-Password-92';
 $accountID = 0;
+$accountConfigPath = $root . '/config/account.php';
+$accountConfigBackup = is_file($accountConfigPath) ? file_get_contents($accountConfigPath) : null;
 
 try {
     $injectionResult = $app->accounts()->register(
@@ -147,7 +149,29 @@ try {
         ':scheduledAt' => time() - 1,
         ':accountID' => $accountID,
     ]);
-    $assert($app->accountRepository()->isDeletionDue($accountID), 'due deletion blocks authentication paths');
+
+    file_put_contents(
+        $accountConfigPath,
+        "<?php\nreturn ['account_deletion_enabled' => false];\n"
+    );
+    $assert(!$deletion->enabled(), 'private PHP switch disables account deletion');
+    $assert(!$app->accountRepository()->isDeletionDue($accountID), 'disabled deletion keeps due account usable');
+    $assert($deletion->purgeDue(100) === 0, 'disabled deletion pauses anonymization worker');
+    $disabledScheduleRejected = false;
+    try {
+        $deletion->schedule($accountID, $password, $username, 7, true);
+    } catch (RuntimeException) {
+        $disabledScheduleRejected = true;
+    }
+    $assert($disabledScheduleRejected, 'disabled deletion rejects new schedules');
+
+    if ($accountConfigBackup === null) {
+        @unlink($accountConfigPath);
+    } else {
+        file_put_contents($accountConfigPath, $accountConfigBackup);
+    }
+    $assert($deletion->enabled(), 'removing private override restores deletion');
+    $assert($app->accountRepository()->isDeletionDue($accountID), 'due deletion blocks authentication paths after re-enable');
 
     $dueLoginRejected = false;
     try {
@@ -174,6 +198,11 @@ try {
 } catch (Throwable $error) {
     $failures[] = 'exception: ' . $error->getMessage();
 } finally {
+    if ($accountConfigBackup === null) {
+        @unlink($accountConfigPath);
+    } else {
+        @file_put_contents($accountConfigPath, $accountConfigBackup);
+    }
     if ($accountID > 0) {
         foreach ([
             'core_account_security_audit',

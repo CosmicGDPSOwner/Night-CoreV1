@@ -31,3 +31,12 @@ CREATE TABLE IF NOT EXISTS `{{prefix}}core_media_upload_audit` (
     KEY `idx_media_upload_account_time` (`accountID`, `createdAt`),
     KEY `idx_media_upload_type_id` (`mediaType`, `mediaID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+UPDATE `{{prefix}}core_staff_permissions`
+SET `description` = CASE `permissionKey`
+    WHEN 'events.create' THEN 'Create an event. Command: !event duration=<1h-90d> reward=<diamonds|orbs|keys|goldkeys:amount,...> [start=now]'
+    WHEN 'events.change' THEN 'Change an existing event. Command: !eventchange [duration=<1h-90d>] [reward=<diamonds|orbs|keys|goldkeys:amount,...>] [start=now]'
+    WHEN 'events.set' THEN 'Create or fully replace an event. Command: !eventset duration=<1h-90d> reward=<diamonds|orbs|keys|goldkeys:amount,...> [start=now]'
+    ELSE `description`
+END
+WHERE `permissionKey` IN ('events.create', 'events.change', 'events.set');

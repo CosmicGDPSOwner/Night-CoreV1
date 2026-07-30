@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace NightCore\Domain\Moderation;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use NightCore\Core\SchemaInspector;
 use NightCore\Core\TableNames;
 use NightCore\Security\AccountAuthenticator;
@@ -32,29 +34,45 @@ final class RotationEventService
         string $type
     ): string {
         $permission = $type === 'weekly' ? 'rotations.weekly' : 'rotations.daily';
-        if (!$this->authorized($accountID, $gjp, $gjp2, $ip, $permission) || !$this->schema->tableExists('dailyfeatures')) {
+        if (!$this->authorized($accountID, $gjp, $gjp2, $ip, $permission)) {
             return '-1';
         }
+        if (!$this->schema->tableExists('core_daily_levels')) {
+            return self::POPUP_PREFIX . 'Rotation migration is missing';
+        }
 
-        $rotationType = $type === 'weekly' ? 1 : 0;
-        $step = $rotationType === 1 ? 604800 : 86400;
-        $start = $rotationType === 1 ? strtotime('next monday 00:00:00') : strtotime('tomorrow 00:00:00');
-        $table = $this->tables->get('dailyfeatures');
+        $slotType = $type === 'weekly' ? 1 : 0;
+        $step = $slotType === 1 ? 604800 : 86400;
+        $now = time();
+        $utc = new DateTimeZone('UTC');
+        $clock = (new DateTimeImmutable('@' . $now))->setTimezone($utc);
+        $boundary = $slotType === 1
+            ? $clock->modify('next monday')->setTime(0, 0)->getTimestamp()
+            : $clock->modify('tomorrow')->setTime(0, 0)->getTimestamp();
+        $table = $this->tables->get('core_daily_levels');
 
-        $duplicate = $this->db->prepare('SELECT 1 FROM ' . $table . ' WHERE levelID = :levelID AND type = :type LIMIT 1');
-        $duplicate->execute([':levelID' => $levelID, ':type' => $rotationType]);
+        $duplicate = $this->db->prepare('SELECT 1 FROM ' . $table . ' WHERE levelID = :levelID AND slotType = :slotType AND endsAt > :now LIMIT 1');
+        $duplicate->execute([':levelID' => $levelID, ':slotType' => $slotType, ':now' => $now]);
         if ($duplicate->fetchColumn() !== false) {
             return self::POPUP_PREFIX . ucfirst($type) . ' already contains this level';
         }
 
-        $latest = $this->db->prepare('SELECT timestamp FROM ' . $table . ' WHERE type = :type AND timestamp >= :start ORDER BY timestamp DESC LIMIT 1');
-        $latest->execute([':type' => $rotationType, ':start' => $start]);
-        $last = $latest->fetchColumn();
-        $timestamp = $last === false ? $start : ((int) $last + $step);
+        $latest = $this->db->prepare('SELECT slotID, endsAt FROM ' . $table . ' WHERE slotType = :slotType ORDER BY endsAt DESC, slotID DESC LIMIT 1');
+        $latest->execute([':slotType' => $slotType]);
+        $row = $latest->fetch(PDO::FETCH_ASSOC);
+        $slotID = $row === false ? 1 : ((int) $row['slotID'] + 1);
+        $startsAt = $row === false ? $boundary : max($boundary, (int) $row['endsAt']);
+        $endsAt = $startsAt + $step;
 
-        $insert = $this->db->prepare('INSERT INTO ' . $table . ' (levelID, timestamp, type) VALUES (:levelID, :timestamp, :type)');
-        $insert->execute([':levelID' => $levelID, ':timestamp' => $timestamp, ':type' => $rotationType]);
-        return self::POPUP_PREFIX . ucfirst($type) . ' scheduled for ' . gmdate('Y-m-d H:i', $timestamp) . ' UTC';
+        $insert = $this->db->prepare('INSERT INTO ' . $table . ' (slotType, slotID, levelID, startsAt, endsAt) VALUES (:slotType, :slotID, :levelID, :startsAt, :endsAt)');
+        $insert->execute([
+            ':slotType' => $slotType,
+            ':slotID' => $slotID,
+            ':levelID' => $levelID,
+            ':startsAt' => $startsAt,
+            ':endsAt' => $endsAt,
+        ]);
+        return self::POPUP_PREFIX . ucfirst($type) . ' scheduled for ' . gmdate('Y-m-d H:i', $startsAt) . ' UTC';
     }
 
     /** @param array<string,int> $rewards */
@@ -68,9 +86,13 @@ final class RotationEventService
         int $endsAt,
         array $rewards
     ): string {
-        if (!$this->authorized($accountID, $gjp, $gjp2, $ip, 'events.create') || !$this->eventTablesAvailable()) {
+        if (!$this->authorized($accountID, $gjp, $gjp2, $ip, 'events.create')) {
             return '-1';
         }
+        if (!$this->eventTablesAvailable()) {
+            return self::POPUP_PREFIX . 'Event migration is missing';
+        }
+        $this->normalizeStatuses();
         if ($this->activeEventForLevel($levelID) !== null) {
             return self::POPUP_PREFIX . 'An event already exists for this level';
         }
@@ -85,26 +107,30 @@ final class RotationEventService
         string $ip,
         int $levelID,
         ?int $startsAt,
-        ?int $endsAt,
+        ?int $duration,
         ?array $rewards,
         bool $replace
     ): string {
         $permission = $replace ? 'events.set' : 'events.change';
-        if (!$this->authorized($accountID, $gjp, $gjp2, $ip, $permission) || !$this->eventTablesAvailable()) {
+        if (!$this->authorized($accountID, $gjp, $gjp2, $ip, $permission)) {
             return '-1';
         }
+        if (!$this->eventTablesAvailable()) {
+            return self::POPUP_PREFIX . 'Event migration is missing';
+        }
 
+        $this->normalizeStatuses();
         $existing = $this->activeEventForLevel($levelID);
         if ($existing === null) {
-            if (!$replace || $startsAt === null || $endsAt === null || $rewards === null) {
+            if (!$replace || $startsAt === null || $duration === null || $rewards === null) {
                 return self::POPUP_PREFIX . 'No event exists for this level';
             }
-            return $this->writeEvent($accountID, $levelID, $startsAt, $endsAt, $rewards, null, 'set-create');
+            return $this->writeEvent($accountID, $levelID, $startsAt, $startsAt + $duration, $rewards, null, 'set-create');
         }
 
         $eventID = (int) $existing['eventID'];
         $newStartsAt = $startsAt ?? (int) $existing['startsAt'];
-        $newEndsAt = $endsAt ?? (int) $existing['endsAt'];
+        $newEndsAt = $duration === null ? (int) $existing['endsAt'] : $newStartsAt + $duration;
         $newRewards = $rewards ?? $this->decodeRewards((string) $existing['rewardJson']);
         return $this->writeEvent($accountID, $levelID, $newStartsAt, $newEndsAt, $newRewards, $eventID, $replace ? 'set' : 'change');
     }
@@ -112,7 +138,8 @@ final class RotationEventService
     /** @param array<string,int> $rewards */
     private function writeEvent(int $accountID, int $levelID, int $startsAt, int $endsAt, array $rewards, ?int $eventID, string $action): string
     {
-        if ($startsAt < time() - 300 || $endsAt <= $startsAt || $endsAt - $startsAt < 3600 || $endsAt - $startsAt > 7776000) {
+        $now = time();
+        if ($startsAt < $now - 300 || $endsAt <= $startsAt || $endsAt - $startsAt < 3600 || $endsAt - $startsAt > 7776000) {
             return self::POPUP_PREFIX . 'Invalid event time window';
         }
         if ($rewards === []) {
@@ -124,7 +151,6 @@ final class RotationEventService
             }
         }
 
-        $now = time();
         $json = json_encode($rewards, JSON_UNESCAPED_SLASHES);
         if (!is_string($json)) {
             return '-1';
@@ -132,24 +158,65 @@ final class RotationEventService
 
         try {
             $this->db->beginTransaction();
+            $status = $this->statusForWindow($startsAt, $endsAt, $now);
             if ($eventID === null) {
                 $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_events') . ' (levelID, startsAt, endsAt, rewardJson, status, createdBy, createdAt, updatedBy, updatedAt) VALUES (:levelID, :startsAt, :endsAt, :rewardJson, :status, :createdBy, :createdAt, :updatedBy, :updatedAt)');
-                $query->execute([':levelID'=>$levelID,':startsAt'=>$startsAt,':endsAt'=>$endsAt,':rewardJson'=>$json,':status'=>$startsAt <= $now ? 'active' : 'scheduled',':createdBy'=>$accountID,':createdAt'=>$now,':updatedBy'=>$accountID,':updatedAt'=>$now]);
+                $query->execute([':levelID'=>$levelID,':startsAt'=>$startsAt,':endsAt'=>$endsAt,':rewardJson'=>$json,':status'=>$status,':createdBy'=>$accountID,':createdAt'=>$now,':updatedBy'=>$accountID,':updatedAt'=>$now]);
                 $eventID = (int) $this->db->lastInsertId();
             } else {
                 $query = $this->db->prepare('UPDATE ' . $this->tables->get('core_events') . ' SET startsAt=:startsAt, endsAt=:endsAt, rewardJson=:rewardJson, status=:status, updatedBy=:updatedBy, updatedAt=:updatedAt WHERE eventID=:eventID');
-                $query->execute([':startsAt'=>$startsAt,':endsAt'=>$endsAt,':rewardJson'=>$json,':status'=>$startsAt <= $now && $endsAt > $now ? 'active' : 'scheduled',':updatedBy'=>$accountID,':updatedAt'=>$now,':eventID'=>$eventID]);
+                $query->execute([':startsAt'=>$startsAt,':endsAt'=>$endsAt,':rewardJson'=>$json,':status'=>$status,':updatedBy'=>$accountID,':updatedAt'=>$now,':eventID'=>$eventID]);
             }
+
+            $this->syncEventSlot($eventID, $levelID, $startsAt, $endsAt, $status);
+
             $audit = $this->db->prepare('INSERT INTO ' . $this->tables->get('core_event_audit') . ' (eventID, levelID, accountID, action, detailsJson, createdAt) VALUES (:eventID, :levelID, :accountID, :action, :detailsJson, :createdAt)');
             $audit->execute([':eventID'=>$eventID,':levelID'=>$levelID,':accountID'=>$accountID,':action'=>$action,':detailsJson'=>json_encode(['startsAt'=>$startsAt,'endsAt'=>$endsAt,'rewards'=>$rewards], JSON_UNESCAPED_SLASHES),':createdAt'=>$now]);
             $this->db->commit();
             return self::POPUP_PREFIX . 'Event saved (ID ' . $eventID . ')';
-        } catch (Throwable $e) {
+        } catch (Throwable) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             return '-1';
         }
+    }
+
+    private function syncEventSlot(int $eventID, int $levelID, int $startsAt, int $endsAt, string $status): void
+    {
+        if (!$this->schema->tableExists('core_daily_levels')) {
+            return;
+        }
+        $table = $this->tables->get('core_daily_levels');
+        if ($status === 'ended' || $status === 'cancelled') {
+            $delete = $this->db->prepare('DELETE FROM ' . $table . ' WHERE slotType = 2 AND slotID = :slotID');
+            $delete->execute([':slotID' => $eventID]);
+            return;
+        }
+        $query = $this->db->prepare('INSERT INTO ' . $table . ' (slotType, slotID, levelID, startsAt, endsAt) VALUES (2, :slotID, :levelID, :startsAt, :endsAt) ON DUPLICATE KEY UPDATE levelID=VALUES(levelID), startsAt=VALUES(startsAt), endsAt=VALUES(endsAt)');
+        $query->execute([':slotID'=>$eventID,':levelID'=>$levelID,':startsAt'=>$startsAt,':endsAt'=>$endsAt]);
+    }
+
+    private function normalizeStatuses(): void
+    {
+        if (!$this->eventTablesAvailable()) {
+            return;
+        }
+        $now = time();
+        $table = $this->tables->get('core_events');
+        $this->db->prepare("UPDATE {$table} SET status='ended', updatedAt=:now WHERE status IN ('scheduled','active') AND endsAt <= :now")->execute([':now'=>$now]);
+        $this->db->prepare("UPDATE {$table} SET status='active', updatedAt=:now WHERE status='scheduled' AND startsAt <= :now AND endsAt > :now")->execute([':now'=>$now]);
+        if ($this->schema->tableExists('core_daily_levels')) {
+            $this->db->prepare('DELETE FROM ' . $this->tables->get('core_daily_levels') . ' WHERE slotType = 2 AND endsAt <= :now')->execute([':now'=>$now]);
+        }
+    }
+
+    private function statusForWindow(int $startsAt, int $endsAt, int $now): string
+    {
+        if ($endsAt <= $now) {
+            return 'ended';
+        }
+        return $startsAt > $now ? 'scheduled' : 'active';
     }
 
     private function authorized(int $accountID, string $gjp, string $gjp2, string $ip, string $permission): bool
@@ -161,14 +228,16 @@ final class RotationEventService
 
     private function eventTablesAvailable(): bool
     {
-        return $this->schema->tableExists('core_events') && $this->schema->tableExists('core_event_audit');
+        return $this->schema->tableExists('core_events')
+            && $this->schema->tableExists('core_event_claims')
+            && $this->schema->tableExists('core_event_audit');
     }
 
     /** @return array<string,mixed>|null */
     private function activeEventForLevel(int $levelID): ?array
     {
-        $query = $this->db->prepare("SELECT eventID, startsAt, endsAt, rewardJson FROM " . $this->tables->get('core_events') . " WHERE levelID = :levelID AND status IN ('scheduled','active') ORDER BY eventID DESC LIMIT 1");
-        $query->execute([':levelID' => $levelID]);
+        $query = $this->db->prepare("SELECT eventID, startsAt, endsAt, rewardJson FROM " . $this->tables->get('core_events') . " WHERE levelID = :levelID AND status IN ('scheduled','active') AND endsAt > :now ORDER BY eventID DESC LIMIT 1");
+        $query->execute([':levelID' => $levelID, ':now' => time()]);
         $row = $query->fetch(PDO::FETCH_ASSOC);
         return $row === false ? null : $row;
     }

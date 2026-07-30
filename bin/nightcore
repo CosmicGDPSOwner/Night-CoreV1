@@ -90,6 +90,10 @@ try {
             $app->accountRepository(),
             $app->passwordService()
         );
+        if (!$service->enabled()) {
+            echo "Account deletion is disabled. No pending requests were processed.\n";
+            exit(0);
+        }
         $deleted = $service->purgeDue();
         echo 'Accounts anonymized: ' . $deleted . PHP_EOL;
         exit(0);

@@ -25,6 +25,8 @@ $tables = $app->tables();
 $username = 'Sec' . bin2hex(random_bytes(4));
 $password = 'NightCore-Test-Password-92';
 $accountID = 0;
+$config2Path = $root . '/config2.php';
+$config2Backup = is_file($config2Path) ? file_get_contents($config2Path) : null;
 
 try {
     $injectionResult = $app->accounts()->register(
@@ -147,7 +149,33 @@ try {
         ':scheduledAt' => time() - 1,
         ':accountID' => $accountID,
     ]);
-    $assert($app->accountRepository()->isDeletionDue($accountID), 'due deletion blocks authentication paths');
+
+    file_put_contents(
+        $config2Path,
+        "<?php\nreturn [\n"
+        . "'account_deletion_enabled' => false,\n"
+        . "'session_idle_timeout_seconds' => 1800,\n"
+        . "'session_absolute_timeout_seconds' => 28800,\n"
+        . "];\n"
+    );
+    $assert(!$deletion->enabled(), 'config2 switch disables account deletion');
+    $assert(!$app->accountRepository()->isDeletionDue($accountID), 'disabled deletion keeps due account usable');
+    $assert($deletion->purgeDue(100) === 0, 'disabled deletion pauses anonymization worker');
+    $disabledScheduleRejected = false;
+    try {
+        $deletion->schedule($accountID, $password, $username, 7, true);
+    } catch (RuntimeException) {
+        $disabledScheduleRejected = true;
+    }
+    $assert($disabledScheduleRejected, 'disabled deletion rejects new schedules');
+
+    if ($config2Backup === null) {
+        @unlink($config2Path);
+    } else {
+        file_put_contents($config2Path, $config2Backup);
+    }
+    $assert($deletion->enabled(), 'removing config2 override restores deletion');
+    $assert($app->accountRepository()->isDeletionDue($accountID), 'due deletion blocks authentication paths after re-enable');
 
     $dueLoginRejected = false;
     try {
@@ -174,6 +202,11 @@ try {
 } catch (Throwable $error) {
     $failures[] = 'exception: ' . $error->getMessage();
 } finally {
+    if ($config2Backup === null) {
+        @unlink($config2Path);
+    } else {
+        @file_put_contents($config2Path, $config2Backup);
+    }
     if ($accountID > 0) {
         foreach ([
             'core_account_security_audit',

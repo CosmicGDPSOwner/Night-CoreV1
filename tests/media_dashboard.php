@@ -136,6 +136,7 @@ try {
         $dashboard = @file_get_contents('http://127.0.0.1:8101/dashboard.php');
         $assert(is_string($dashboard) && str_contains($dashboard, 'Night Core dashboard'), 'canonical dashboard route loads');
         $assert(is_string($dashboard) && str_contains($dashboard, 'Sign in / Register'), 'top-right account button is visible');
+        $assert(is_string($dashboard) && str_contains($dashboard, 'Daily / Weekly / Event'), 'rotation tab link is visible');
         $assert(is_string($dashboard) && str_contains($dashboard, 'id="account-dialog"'), 'account modal is rendered');
         $assert(is_string($dashboard) && str_contains($dashboard, 'name="action" value="login"'), 'account modal includes login form');
         $assert(is_string($dashboard) && str_contains($dashboard, 'name="action" value="register"'), 'account modal includes registration form');
@@ -149,6 +150,13 @@ try {
         $assert(is_string($dashboard) && !str_contains($dashboard, 'save_limits'), 'dashboard has no public limit mutation');
         $assert(is_string($dashboard) && !str_contains($dashboard, 'delete_song'), 'dashboard has no public song deletion');
         $assert(is_string($dashboard) && !str_contains($dashboard, 'delete_sfx'), 'dashboard has no public SFX deletion');
+
+        $rotations = @file_get_contents('http://127.0.0.1:8101/dashboard.php?tab=rotations');
+        $assert(is_string($rotations) && str_contains($rotations, 'Current GDPS rotations'), 'rotation tab loads publicly');
+        $assert(is_string($rotations) && str_contains($rotations, '>Daily<'), 'rotation tab renders Daily slot');
+        $assert(is_string($rotations) && str_contains($rotations, '>Weekly<'), 'rotation tab renders Weekly slot');
+        $assert(is_string($rotations) && str_contains($rotations, '>Event<'), 'rotation tab renders Event slot');
+        $assert(is_string($rotations) && !str_contains($rotations, 'name="action" value="upload_song"'), 'rotation tab does not expose upload form');
 
         $legacy = @file_get_contents('http://127.0.0.1:8101/mediaAdmin.php');
         $assert(is_string($legacy) && str_contains($legacy, 'Night Core dashboard'), 'legacy mediaAdmin route redirects to dashboard');

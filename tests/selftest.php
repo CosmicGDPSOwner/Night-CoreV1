@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NightCore\Core\AccountPolicy;
 use NightCore\Core\TableNames;
 use NightCore\Domain\Content\NewgroundsSongParser;
 use NightCore\Protocol\LevelHash;
@@ -53,6 +54,60 @@ if (LevelHash::solo2('1,5,0,123,1,0,0,0') !== '0b35d193384c953d1ff985cfe31991326
 $tables = new TableNames('demo_');
 if ($tables->raw('accounts') !== 'demo_accounts') {
     $failures[] = 'table prefix';
+}
+
+$policyRoot = sys_get_temp_dir() . '/nightcore-account-policy-' . bin2hex(random_bytes(6));
+$legacyConfig = $policyRoot . '/config';
+try {
+    if (!mkdir($legacyConfig, 0700, true) && !is_dir($legacyConfig)) {
+        throw new RuntimeException('cannot create account policy test directory');
+    }
+
+    $defaults = AccountPolicy::load($policyRoot);
+    if (!$defaults->accountDeletionEnabled()) {
+        $failures[] = 'account deletion policy defaults enabled';
+    }
+    if ($defaults->sessionIdleTimeoutSeconds() !== 1800
+        || $defaults->sessionAbsoluteTimeoutSeconds() !== 28800) {
+        $failures[] = 'session policy defaults';
+    }
+
+    file_put_contents(
+        $policyRoot . '/config2.php',
+        "<?php\nreturn [\n"
+        . "'account_deletion_enabled' => false,\n"
+        . "'session_idle_timeout_seconds' => 0,\n"
+        . "'session_absolute_timeout_seconds' => 0,\n"
+        . "];\n"
+    );
+    $configured = AccountPolicy::load($policyRoot);
+    if ($configured->accountDeletionEnabled()) {
+        $failures[] = 'config2 can disable account deletion';
+    }
+    if ($configured->sessionIdleTimeoutSeconds() !== 0
+        || $configured->sessionAbsoluteTimeoutSeconds() !== 0) {
+        $failures[] = 'config2 accepts eternal session values';
+    }
+    $now = time();
+    if ($configured->sessionExpired($now - 100000, $now - 100000, $now)) {
+        $failures[] = 'zero timeouts keep valid session alive';
+    }
+
+    @unlink($policyRoot . '/config2.php');
+    file_put_contents(
+        $legacyConfig . '/account.php',
+        "<?php\nreturn ['account_deletion_enabled' => false];\n"
+    );
+    if (AccountPolicy::load($policyRoot)->accountDeletionEnabled()) {
+        $failures[] = 'legacy account policy fallback';
+    }
+} catch (Throwable $error) {
+    $failures[] = 'account policy: ' . $error->getMessage();
+} finally {
+    @unlink($policyRoot . '/config2.php');
+    @unlink($legacyConfig . '/account.php');
+    @rmdir($legacyConfig);
+    @rmdir($policyRoot);
 }
 
 $songParser = new NewgroundsSongParser();

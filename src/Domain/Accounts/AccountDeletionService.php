@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NightCore\Domain\Accounts;
 
+use NightCore\Core\AccountPolicy;
 use NightCore\Core\Config;
 use NightCore\Core\SchemaInspector;
 use NightCore\Core\TableNames;
@@ -26,6 +27,11 @@ final class AccountDeletionService
     ) {
     }
 
+    public function enabled(): bool
+    {
+        return AccountPolicy::load(dirname(__DIR__, 3))->accountDeletionEnabled();
+    }
+
     /** @return array<int,int> */
     public function retentionOptions(): array
     {
@@ -35,6 +41,9 @@ final class AccountDeletionService
     /** @return array<string,int> */
     public function status(int $accountID): array
     {
+        if (!$this->enabled()) {
+            throw new RuntimeException('Account deletion is disabled by the server owner.');
+        }
         $this->requireTables();
         $this->ensureLifecycle($accountID);
 
@@ -66,6 +75,9 @@ final class AccountDeletionService
         int $retentionDays,
         bool $requirePassword = true
     ): array {
+        if (!$this->enabled()) {
+            throw new RuntimeException('Account deletion is disabled by the server owner.');
+        }
         $this->requireTables();
         if (!in_array($retentionDays, self::RETENTION_OPTIONS, true)) {
             throw new RuntimeException('Choose one of the available deletion periods.');
@@ -174,6 +186,9 @@ final class AccountDeletionService
 
     public function purgeDue(int $limit = 100): int
     {
+        if (!$this->enabled()) {
+            return 0;
+        }
         $this->requireTables();
         $limit = max(1, min(1000, $limit));
         $query = $this->db->prepare(

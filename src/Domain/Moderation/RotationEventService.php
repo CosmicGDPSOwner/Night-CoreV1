@@ -75,6 +75,113 @@ final class RotationEventService
         return self::POPUP_PREFIX . ucfirst($type) . ' scheduled for ' . gmdate('Y-m-d H:i', $startsAt) . ' UTC';
     }
 
+    public function forceRotationNow(
+        int $accountID,
+        string $gjp,
+        string $gjp2,
+        string $ip,
+        int $levelID,
+        string $type
+    ): string {
+        $permission = $type === 'weekly' ? 'rotations.weekly.force' : 'rotations.daily.force';
+        if (!$this->authorized($accountID, $gjp, $gjp2, $ip, $permission)) {
+            return '-1';
+        }
+        if (!$this->schema->tableExists('core_daily_levels')) {
+            return self::POPUP_PREFIX . 'Rotation migration is missing';
+        }
+
+        $slotType = $type === 'weekly' ? 1 : 0;
+        $now = time();
+        $utc = new DateTimeZone('UTC');
+        $clock = (new DateTimeImmutable('@' . $now))->setTimezone($utc);
+        $boundary = $slotType === 1
+            ? $clock->modify('next monday')->setTime(0, 0)->getTimestamp()
+            : $clock->modify('tomorrow')->setTime(0, 0)->getTimestamp();
+        $table = $this->tables->get('core_daily_levels');
+
+        try {
+            $this->db->beginTransaction();
+
+            $active = $this->db->prepare(
+                'SELECT slotID, levelID FROM ' . $table
+                . ' WHERE slotType = :slotType'
+                . ' AND startsAt <= :startsAt'
+                . ' AND endsAt > :endsAt'
+                . ' ORDER BY startsAt DESC, slotID DESC LIMIT 1 FOR UPDATE'
+            );
+            $active->execute([
+                ':slotType' => $slotType,
+                ':startsAt' => $now,
+                ':endsAt' => $now,
+            ]);
+            $activeRow = $active->fetch(PDO::FETCH_ASSOC);
+            if ($activeRow !== false && (int) $activeRow['levelID'] === $levelID) {
+                $this->db->rollBack();
+                return self::POPUP_PREFIX . ucfirst($type) . ' already uses this level';
+            }
+
+            $future = $this->db->prepare(
+                'SELECT MIN(startsAt) FROM ' . $table
+                . ' WHERE slotType = :slotType AND startsAt > :startsAfter'
+            );
+            $future->execute([
+                ':slotType' => $slotType,
+                ':startsAfter' => $now,
+            ]);
+            $futureStartsAt = $future->fetchColumn();
+            if ($futureStartsAt !== false && (int) $futureStartsAt > $now) {
+                $boundary = min($boundary, (int) $futureStartsAt);
+            }
+            if ($boundary <= $now) {
+                $this->db->rollBack();
+                return self::POPUP_PREFIX . 'No current rotation window is available';
+            }
+
+            $close = $this->db->prepare(
+                'UPDATE ' . $table . ' SET endsAt = :newEndsAt'
+                . ' WHERE slotType = :slotType'
+                . ' AND startsAt <= :activeStartsAt'
+                . ' AND endsAt > :activeEndsAt'
+            );
+            $close->execute([
+                ':newEndsAt' => $now,
+                ':slotType' => $slotType,
+                ':activeStartsAt' => $now,
+                ':activeEndsAt' => $now,
+            ]);
+
+            $latest = $this->db->prepare(
+                'SELECT slotID FROM ' . $table
+                . ' WHERE slotType = :slotType ORDER BY slotID DESC LIMIT 1 FOR UPDATE'
+            );
+            $latest->execute([':slotType' => $slotType]);
+            $latestSlotID = $latest->fetchColumn();
+            $slotID = $latestSlotID === false ? 1 : ((int) $latestSlotID + 1);
+
+            $insert = $this->db->prepare(
+                'INSERT INTO ' . $table
+                . ' (slotType, slotID, levelID, startsAt, endsAt)'
+                . ' VALUES (:slotType, :slotID, :levelID, :startsAt, :endsAt)'
+            );
+            $insert->execute([
+                ':slotType' => $slotType,
+                ':slotID' => $slotID,
+                ':levelID' => $levelID,
+                ':startsAt' => $now,
+                ':endsAt' => $boundary,
+            ]);
+
+            $this->db->commit();
+            return self::POPUP_PREFIX . ucfirst($type) . ' forced active until ' . gmdate('Y-m-d H:i', $boundary) . ' UTC';
+        } catch (Throwable) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return '-1';
+        }
+    }
+
     /** @param array<string,int> $rewards */
     public function createEvent(
         int $accountID,

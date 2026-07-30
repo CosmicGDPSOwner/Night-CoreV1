@@ -25,7 +25,7 @@ Example cron entry:
 17 * * * * cd /var/www/nightcore && /usr/bin/php bin/nightcore accounts:purge-due >/dev/null 2>&1
 ```
 
-All account and dashboard database operations use parameterized PDO statements. User-provided values are bound as parameters rather than concatenated into SQL.
+All account and dashboard database operations use parameterized PDO statements. User-provided values are bound as parameters rather than concatenated into SQL. The dashboard also uses CSRF tokens, strict session cookies, session ID rotation, browser-bound sessions, timeouts, content security headers and server-side input validation.
 
 Recommended production registration settings remain private in `.env`:
 

@@ -1,7 +1,6 @@
 <?php
 
 declare(strict_types=1);
-
 namespace NightCore\Domain\Accounts;
 
 use NightCore\Core\SchemaInspector;
@@ -38,9 +37,24 @@ final class AccountRepository
 
     public function create(string $userName, string $passwordHash, string $email, int $isActive, string $gjp2Hash): int
     {
+        $now = time();
         $query = $this->db->prepare('INSERT INTO ' . $this->tables->get('accounts') . ' (userName, password, email, registerDate, isActive, gjp2) VALUES (:userName, :password, :email, :registerDate, :isActive, :gjp2)');
-        $query->execute([':userName'=>$userName,':password'=>$passwordHash,':email'=>$email,':registerDate'=>time(),':isActive'=>$isActive,':gjp2'=>$gjp2Hash]);
-        return (int) $this->db->lastInsertId();
+        $query->execute([':userName'=>$userName,':password'=>$passwordHash,':email'=>$email,':registerDate'=>$now,':isActive'=>$isActive,':gjp2'=>$gjp2Hash]);
+        $accountID = (int) $this->db->lastInsertId();
+        $this->touchActivity($accountID, $now);
+        return $accountID;
+    }
+
+    public function touchActivity(int $accountID, ?int $at = null): void
+    {
+        if ($accountID <= 0 || !$this->schema->tableExists('core_account_lifecycle')) return;
+        $at ??= time();
+        $query = $this->db->prepare(
+            'INSERT INTO ' . $this->tables->get('core_account_lifecycle') .
+            ' (accountID, lastActiveAt, retentionDays, deletionScheduledAt, softDeletedAt, updatedAt) VALUES (:accountID, :lastActiveAt, 14, 0, 0, :updatedAt) '
+            . 'ON DUPLICATE KEY UPDATE lastActiveAt = VALUES(lastActiveAt), deletionScheduledAt = 0, softDeletedAt = 0, updatedAt = VALUES(updatedAt)'
+        );
+        $query->execute([':accountID' => $accountID, ':lastActiveAt' => $at, ':updatedAt' => $at]);
     }
 
     public function updatePasswordHash(int $accountID, string $hash): void { $q=$this->db->prepare('UPDATE '.$this->tables->get('accounts').' SET password = :hash WHERE accountID = :accountID'); $q->execute([':hash'=>$hash,':accountID'=>$accountID]); }

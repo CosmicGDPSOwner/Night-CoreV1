@@ -31,66 +31,69 @@ final class PublicMediaUploadGuard
         if ($ip === '' || filter_var($ip, FILTER_VALIDATE_IP) === false) {
             $ip = 'unknown';
         }
-        $ipScope = 'ip:' . hash('sha256', $ip);
+        $connectionScope = 'ip:' . hash('sha256', $ip);
         $globalScope = 'global';
         $table = $this->tables->get('core_media_upload_rate_limits');
 
         $this->db->beginTransaction();
         try {
-            // Make both rows exist before locking them. INSERT IGNORE is safe under races.
             $insert = $this->db->prepare(
-                'INSERT IGNORE INTO ' . $table . ' (scopeKey, windowStartedAt, uploadCount, lastUploadAt) '
-                . 'VALUES (:scopeKey, :windowStartedAt, 0, 0)'
+                'INSERT IGNORE INTO ' . $table
+                . ' (scopeKey, windowStartedAt, uploadCount, lastUploadAt)'
+                . ' VALUES (:scopeKey, :windowStartedAt, 0, 0)'
             );
-            foreach ([$globalScope, $ipScope] as $scope) {
-                $insert->execute([':scopeKey' => $scope, ':windowStartedAt' => $now]);
+            foreach ([$globalScope, $connectionScope] as $scope) {
+                $insert->execute([
+                    ':scopeKey' => $scope,
+                    ':windowStartedAt' => $now,
+                ]);
             }
 
-            // Lock in deterministic order to avoid deadlocks between concurrent uploads.
-            $scopes = [$globalScope, $ipScope];
+            $scopes = [$globalScope, $connectionScope];
             sort($scopes, SORT_STRING);
             $select = $this->db->prepare(
-                'SELECT scopeKey, windowStartedAt, uploadCount, lastUploadAt '
-                . 'FROM ' . $table . ' WHERE scopeKey = :scopeKey FOR UPDATE'
+                'SELECT scopeKey, windowStartedAt, uploadCount, lastUploadAt'
+                . ' FROM ' . $table . ' WHERE scopeKey = :scopeKey FOR UPDATE'
             );
             $state = [];
             foreach ($scopes as $scope) {
                 $select->execute([':scopeKey' => $scope]);
                 $row = $select->fetch();
                 if (!is_array($row)) {
-                    throw new RuntimeException('Unable to initialize media upload rate limit.');
+                    throw new RuntimeException('Unable to initialize media upload protection.');
                 }
                 $state[$scope] = $row;
             }
 
             $windowSeconds = 3600;
-            $ipRow = $this->normalizedWindow($state[$ipScope], $now, $windowSeconds);
+            $connectionRow = $this->normalizedWindow($state[$connectionScope], $now, $windowSeconds);
             $globalRow = $this->normalizedWindow($state[$globalScope], $now, $windowSeconds);
 
             $cooldown = $this->policy->uploadCooldownSeconds();
-            if ($cooldown > 0 && (int) $ipRow['lastUploadAt'] > 0) {
-                $remaining = $cooldown - ($now - (int) $ipRow['lastUploadAt']);
+            if ($cooldown > 0 && (int) $connectionRow['lastUploadAt'] > 0) {
+                $remaining = $cooldown - ($now - (int) $connectionRow['lastUploadAt']);
                 if ($remaining > 0) {
-                    throw new RuntimeException('Please wait ' . $remaining . ' seconds before uploading another file.');
+                    throw new RuntimeException('Upload temporarily unavailable. Try again later.');
                 }
             }
 
-            $ipLimit = $this->policy->uploadsPerHourPerIp();
-            if ($ipLimit > 0 && (int) $ipRow['uploadCount'] >= $ipLimit) {
-                throw new RuntimeException('Hourly upload limit reached for this connection. Try again later.');
+            $connectionLimit = $this->policy->uploadsPerHourPerIp();
+            if ($connectionLimit > 0 && (int) $connectionRow['uploadCount'] >= $connectionLimit) {
+                throw new RuntimeException('Upload temporarily unavailable. Try again later.');
             }
 
             $globalLimit = $this->policy->globalUploadsPerHour();
             if ($globalLimit > 0 && (int) $globalRow['uploadCount'] >= $globalLimit) {
-                throw new RuntimeException('The public uploader is temporarily busy. Try again later.');
+                throw new RuntimeException('Upload temporarily unavailable. Try again later.');
             }
 
             $update = $this->db->prepare(
-                'UPDATE ' . $table . ' SET windowStartedAt = :windowStartedAt, uploadCount = :uploadCount, lastUploadAt = :lastUploadAt '
-                . 'WHERE scopeKey = :scopeKey'
+                'UPDATE ' . $table
+                . ' SET windowStartedAt = :windowStartedAt, uploadCount = :uploadCount, lastUploadAt = :lastUploadAt'
+                . ' WHERE scopeKey = :scopeKey'
             );
             foreach ([
-                $ipScope => $ipRow,
+                $connectionScope => $connectionRow,
                 $globalScope => $globalRow,
             ] as $scope => $row) {
                 $update->execute([
@@ -102,11 +105,11 @@ final class PublicMediaUploadGuard
             }
 
             $this->db->commit();
-        } catch (Throwable $e) {
+        } catch (Throwable $error) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            throw $e;
+            throw $error;
         }
     }
 
@@ -123,18 +126,14 @@ final class PublicMediaUploadGuard
 
     private function assertDiskReserve(string $storagePath, int $incomingBytes): void
     {
-        $path = $storagePath;
-        if (!is_dir($path)) {
-            $path = dirname($path);
-        }
+        $path = is_dir($storagePath) ? $storagePath : dirname($storagePath);
         $free = @disk_free_space($path);
         if ($free === false) {
             throw new RuntimeException('Unable to verify free disk space for media uploads.');
         }
 
-        $requiredFree = $this->policy->minimumFreeBytes();
-        if ($free - $incomingBytes < $requiredFree) {
-            throw new RuntimeException('Media uploads are temporarily paused to protect server disk space.');
+        if ($free - $incomingBytes < $this->policy->minimumFreeBytes()) {
+            throw new RuntimeException('Media uploads are temporarily unavailable.');
         }
     }
 }

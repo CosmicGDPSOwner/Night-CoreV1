@@ -55,7 +55,7 @@ final class LevelSearchBridge
 
             case 21: // Daily history.
             case 22: // Weekly history.
-            case 23: // Event history.
+            case 23: // Current Event Level.
                 $ids = $this->rotationLevelIDs($type - 21, 100);
                 break;
 
@@ -135,6 +135,23 @@ final class LevelSearchBridge
     /** @return array<int,int> */
     private function rotationLevelIDs(int $slotType, int $limit): array
     {
+        if ($slotType === 2) {
+            $now = time();
+            $query = $this->db->prepare(
+                'SELECT levelID FROM ' . $this->tables->get('core_daily_levels')
+                . ' WHERE slotType = :slotType'
+                . ' AND startsAt <= :nowStart'
+                . ' AND (endsAt = 0 OR endsAt > :nowEnd)'
+                . ' ORDER BY startsAt DESC, slotID DESC LIMIT 1'
+            );
+            $query->execute([
+                ':slotType' => $slotType,
+                ':nowStart' => $now,
+                ':nowEnd' => $now,
+            ]);
+            return array_map('intval', array_column($query->fetchAll(), 'levelID'));
+        }
+
         $query = $this->db->prepare(
             'SELECT levelID FROM ' . $this->tables->get('core_daily_levels') .
             ' WHERE slotType = :slotType ORDER BY slotID DESC LIMIT ' . max(1, min(100, $limit))

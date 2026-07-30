@@ -128,7 +128,10 @@ try {
 
     if ($ready) {
         $dashboard = @file_get_contents('http://127.0.0.1:8101/mediaAdmin.php');
-        $assert(is_string($dashboard) && str_contains($dashboard, 'Public songs and SFX uploads.'), 'public media dashboard loads without login');
+        $assert(is_string($dashboard) && str_contains($dashboard, 'Public library.'), 'public media library loads without login');
+        $assert(is_string($dashboard) && str_contains($dashboard, 'Account login required'), 'dashboard requires a GDPS account before upload');
+        $assert(is_string($dashboard) && !str_contains($dashboard, 'name="action" value="upload_song"'), 'song upload form hidden before login');
+        $assert(is_string($dashboard) && !str_contains($dashboard, 'name="action" value="upload_sfx"'), 'SFX upload form hidden before login');
         $assert(is_string($dashboard) && !str_contains($dashboard, 'Admin token'), 'dashboard has no admin token prompt');
         $assert(is_string($dashboard) && !str_contains($dashboard, 'save_limits'), 'dashboard has no public limit mutation');
         $assert(is_string($dashboard) && !str_contains($dashboard, 'delete_song'), 'dashboard has no public song deletion');

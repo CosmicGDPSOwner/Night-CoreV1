@@ -28,12 +28,16 @@ final class AccountAuthenticator
             return false;
         }
 
+        // Different GD client paths can submit legacy GJP, GJP2, or both.
+        // Treat either independently valid credential as sufficient instead of
+        // allowing a stale/unsupported GJP2 value to mask a valid legacy GJP.
         $valid = false;
-        if ($gjp2 !== '') {
-            $valid = $this->passwords->verifyGjp2($gjp2, (string) $account['gjp2']);
-        } elseif ($gjp !== '') {
+        if ($gjp !== '') {
             $decoded = XorCipher::decodeGjp($gjp);
             $valid = $decoded !== null && $this->passwords->verifyPassword($decoded, (string) $account['password']);
+        }
+        if (!$valid && $gjp2 !== '') {
+            $valid = $this->passwords->verifyGjp2($gjp2, (string) $account['gjp2']);
         }
 
         if (!$valid) {

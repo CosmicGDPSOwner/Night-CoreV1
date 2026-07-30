@@ -26,6 +26,7 @@ use NightCore\Domain\Levels\LevelSongProvider;
 use NightCore\Domain\Levels\LevelStorage;
 use NightCore\Domain\Moderation\ModerationRepository;
 use NightCore\Domain\Moderation\ModerationService;
+use NightCore\Domain\Moderation\RotationEventService;
 use NightCore\Domain\Moderation\StaffAccessRepository;
 use NightCore\Domain\Moderation\StaffAccessService;
 use NightCore\Domain\Moderation\StaffCommandService;
@@ -181,7 +182,16 @@ final class Application
             new CommentAccessPolicy($this->db, $this->tables, $this->adminAccountIDs(), $this->staffAccess()),
             $this->newgroundsSongs(),
             $this->staffAccess(),
-            new StaffCommandService($this->moderation())
+            new StaffCommandService(
+                $this->moderation(),
+                new RotationEventService(
+                    $this->db,
+                    $this->tables,
+                    $this->schema,
+                    $this->authenticator(),
+                    $this->staffAccess()
+                )
+            )
         );
     }
 

@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+
 namespace NightCore\Domain\Accounts;
 
 use NightCore\Core\Config;
@@ -9,7 +10,14 @@ use PDOException;
 
 final class AccountService
 {
-    public function __construct(private AccountRepository $accounts, private AuthRateLimiter $rateLimiter, private PasswordService $passwords, private bool $preactivateAccounts, private bool $migrateLegacyUdidLevels) {}
+    public function __construct(
+        private AccountRepository $accounts,
+        private AuthRateLimiter $rateLimiter,
+        private PasswordService $passwords,
+        private bool $preactivateAccounts,
+        private bool $migrateLegacyUdidLevels
+    ) {
+    }
 
     public function register(string $userName, string $password, string $email, string $ip = '0.0.0.0'): int
     {
@@ -25,13 +33,21 @@ final class AccountService
             $this->accounts->recordRegistrationAttempt($ip, false, 'rate_limited', $hashKey);
             return -1;
         }
-        if ($userName === '' || $password === '') {
+        if ($userName === '' || $password === '' || strlen($password) > 128) {
             $this->accounts->recordRegistrationAttempt($ip, false, 'invalid_input', $hashKey);
             return -1;
         }
         if (strlen($userName) > 20) {
             $this->accounts->recordRegistrationAttempt($ip, false, 'username_length', $hashKey);
             return -4;
+        }
+        if (preg_match('/^[A-Za-z0-9_]{1,20}$/D', $userName) !== 1) {
+            $this->accounts->recordRegistrationAttempt($ip, false, 'username_format', $hashKey);
+            return -1;
+        }
+        if (strlen($email) > 255 || ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) === false)) {
+            $this->accounts->recordRegistrationAttempt($ip, false, 'email_format', $hashKey);
+            return -1;
         }
         if ($this->accounts->findByUsername($userName) !== null) {
             $this->accounts->recordRegistrationAttempt($ip, false, 'duplicate_username', $hashKey);
@@ -46,12 +62,12 @@ final class AccountService
                 $this->preactivateAccounts ? 1 : 0,
                 $this->passwords->hashGjp2FromPassword($password)
             );
-        } catch (PDOException $e) {
-            if ($e->getCode() === '23000') {
+        } catch (PDOException $error) {
+            if ($error->getCode() === '23000') {
                 $this->accounts->recordRegistrationAttempt($ip, false, 'duplicate_account', $hashKey);
                 return -2;
             }
-            throw $e;
+            throw $error;
         }
 
         $this->accounts->recordRegistrationAttempt($ip, true, 'registered', $hashKey);
@@ -61,28 +77,56 @@ final class AccountService
     public function login(string $userName, string $password, string $gjp2, string $udid, string $ip): string
     {
         $account = $this->accounts->findByUsername(trim($userName));
-        if ($account === null) return '-1';
-        $accountID = (int) $account['accountID'];
-        if ($this->rateLimiter->blocked($ip)) return '-12';
-        $valid = false; $usedPassword = false;
-        if ($password !== '') { $usedPassword = true; $valid = $this->passwords->verifyPassword($password, (string) $account['password']); }
-        elseif ($gjp2 !== '') { $valid = $this->passwords->verifyGjp2($gjp2, (string) $account['gjp2']); }
-        if (!$valid) { $this->rateLimiter->record($ip, $accountID); return '-1'; }
-        if ((int) $account['isActive'] !== 1 || $this->accounts->isAccountBanned($accountID)) return '-1';
-        if ($usedPassword) {
-            if ($this->passwords->passwordNeedsRehash((string) $account['password'])) $this->accounts->updatePasswordHash($accountID, $this->passwords->hashPassword($password));
-            if ((string) $account['gjp2'] === '') $this->accounts->updateGjp2Hash($accountID, $this->passwords->hashGjp2FromPassword($password));
+        if ($account === null) {
+            return '-1';
         }
+        $accountID = (int) $account['accountID'];
+        if ($this->rateLimiter->blocked($ip)) {
+            return '-12';
+        }
+
+        $valid = false;
+        $usedPassword = false;
+        if ($password !== '') {
+            $usedPassword = true;
+            $valid = $this->passwords->verifyPassword($password, (string) $account['password']);
+        } elseif ($gjp2 !== '') {
+            $valid = $this->passwords->verifyGjp2($gjp2, (string) $account['gjp2']);
+        }
+        if (!$valid) {
+            $this->rateLimiter->record($ip, $accountID);
+            return '-1';
+        }
+        if ((int) $account['isActive'] !== 1
+            || $this->accounts->isAccountBanned($accountID)
+            || $this->accounts->isDeletionDue($accountID)) {
+            return '-1';
+        }
+
+        if ($usedPassword) {
+            if ($this->passwords->passwordNeedsRehash((string) $account['password'])) {
+                $this->accounts->updatePasswordHash($accountID, $this->passwords->hashPassword($password));
+            }
+            if ((string) $account['gjp2'] === '') {
+                $this->accounts->updateGjp2Hash($accountID, $this->passwords->hashGjp2FromPassword($password));
+            }
+        }
+
         $this->rateLimiter->clear($ip);
+        $this->accounts->touchActivity($accountID);
         $userID = $this->accounts->ensureUser($accountID, (string) $account['userName']);
-        if ($this->migrateLegacyUdidLevels) $this->accounts->migrateLegacyUdidLevels($udid, $accountID, $userID);
+        if ($this->migrateLegacyUdidLevels) {
+            $this->accounts->migrateLegacyUdidLevels($udid, $accountID, $userID);
+        }
         return $accountID . ',' . $userID;
     }
 
     private function registrationHashKey(): string
     {
         $configured = trim(Config::get('REGISTRATION_IP_HASH_KEY', '') ?? '');
-        if ($configured !== '') return $configured;
+        if ($configured !== '') {
+            return $configured;
+        }
 
         $serverID = Config::get('SERVER_ID', 'nightcore') ?? 'nightcore';
         $databaseSecret = Config::get('DB_PASS', '') ?? '';

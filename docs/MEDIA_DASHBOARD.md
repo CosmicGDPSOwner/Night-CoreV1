@@ -1,30 +1,28 @@
-# Public media dashboard
+# Dashboard media library
 
-Night Core exposes `/mediaAdmin.php` as a public media library/uploader when the server owner enables public uploads in a private server-local PHP policy file.
+`/dashboard.php?tab=media` is the canonical public song/SFX page. `/mediaAdmin.php` is only a compatibility redirect.
 
-## Public surface
+## Public and authenticated surfaces
 
-The page provides:
+Everyone can read:
 
-- MP3 song upload using the existing local-song library;
-- Ogg (`.ogg`) SFX upload using the separate local SFX library;
-- read-only song/SFX lists with IDs, sizes and download URLs;
-- read-only display of per-file limits and anti-spam policy;
-- CSRF protection for browser upload forms.
+- local MP3 song IDs, names, authors, sizes and download URLs;
+- local Ogg SFX IDs, names, sizes and download URLs;
+- the configured per-file size limits.
 
-There is no admin-token prompt on this page. It also does not expose file deletion or limit-changing actions to visitors.
+Uploading requires a signed-in GDPS account that is active, not account-banned and not due for deletion. The same account/password database is used by Geometry Dash. The page never stores a plaintext password in the PHP session.
 
-The legacy `/songAdmin.php` endpoint remains token-protected for compatibility and owner-only song management.
+The dashboard intentionally does not publish upload cooldowns, per-network quotas, global quotas, registration thresholds or network-derived identifiers. Rejected limiter requests use a generic temporary-unavailability message.
 
-## Owner-only PHP policy
+## Private media policy
 
-Copy the tracked example once:
+Copy the example once:
 
 ```bash
 cp config/media.php.example config/media.php
 ```
 
-`config/media.php` is ignored by Git, so normal updates do not overwrite the server owner's local policy. A production example:
+`config/media.php` is ignored by Git. Example:
 
 ```php
 <?php
@@ -39,42 +37,13 @@ return [
 ];
 ```
 
-Only the server owner should be able to edit this file. On a typical Linux/Nginx/PHP-FPM host:
+Only the server owner should edit this file. `public_uploads=false` keeps both libraries readable and rejects/hides upload forms.
 
-```bash
-chown root:www-data config/media.php
-chmod 0640 config/media.php
-```
+## Server-side protection
 
-PHP needs read access; web users do not need write access.
+Before storage, Night Core verifies authentication, CSRF, file upload state, media format, configured size, upload reservations and free disk space. Rate-limit state is persisted in MariaDB and network addresses are not stored as plaintext.
 
-`public_uploads=false` keeps the library page readable but hides/rejects upload forms. The default is disabled when `config/media.php` does not exist.
-
-## Anti-spam and disk protection
-
-Before persisting an anonymous upload, Night Core applies:
-
-- `upload_cooldown_seconds`: minimum delay between reservations from the same IP;
-- `uploads_per_hour_per_ip`: hourly upload cap per IP;
-- `global_uploads_per_hour`: hourly cap across the public uploader;
-- `minimum_free_space_mib`: disk-space reserve below which new uploads are automatically paused.
-
-Rate-limit state lives in MariaDB table `core_media_upload_rate_limits`. Client IP addresses are not stored in plaintext; the limiter uses a SHA-256 hash as its key.
-
-A numeric cooldown/hourly limit can be set to `0` to disable only that limit. With `TRUST_PROXY_HEADERS=0`, the client address comes from `REMOTE_ADDR`. `X-Forwarded-For` is trusted only when `TRUST_PROXY_HEADERS=1`; the origin must then be protected against direct proxy bypass.
-
-## File-size limits
-
-`song_max_mib` and `sfx_max_mib` are integer MiB values. Night Core applies them when storing files. Environment values remain fallback defaults when the private PHP policy omits a limit:
-
-```env
-CUSTOM_SONG_MAX_BYTES=26214400
-CUSTOM_SFX_MAX_BYTES=10485760
-```
-
-The public page can only display these limits; it cannot change them.
-
-The Night Core limit is still bounded by infrastructure. `upload_max_filesize`, `post_max_size`, Nginx `client_max_body_size`, Apache/provider limits and reverse proxies must also allow the request. Lowering the PHP-policy limit works immediately without restarting PHP-FPM.
+These controls reduce abuse but do not replace Cloudflare, origin firewall rules, Nginx/PHP request limits or DDoS protection.
 
 ## Storage
 
@@ -85,37 +54,14 @@ CUSTOM_SONG_STORAGE_PATH=/var/lib/nightcore/songs
 CUSTOM_SFX_STORAGE_PATH=/var/lib/nightcore/sfx
 ```
 
-Both directories must be writable by the PHP/web-server user and should remain outside `public/`.
+The PHP-FPM user needs read/write access. Keep storage outside `public/`.
 
-```bash
-mkdir -p /var/lib/nightcore/songs /var/lib/nightcore/sfx
-chown -R www-data:www-data /var/lib/nightcore/songs /var/lib/nightcore/sfx
-chmod 0755 /var/lib/nightcore/songs /var/lib/nightcore/sfx
-```
+## SFX compatibility boundary
 
-`php bin/nightcore doctor` requires writable song/SFX storage while public uploads are enabled.
+The server-side Ogg SFX library, range downloads and level `sfxIDs` persistence are implemented. An unmodified Geometry Dash client uses its own SFX library/CDN discovery flow, so a successful browser download alone does not prove stock-client discovery.
 
-## SFX library
+## Related migrations
 
-SFX uploads are stored in `core_local_sfx` and served by `/downloadCustomSfx.php?sfxID=<ID>`. The uploader accepts Ogg streams and validates the `OggS` container header before storage.
-
-Default local SFX ID range:
-
-```env
-CUSTOM_SFX_ID_MIN=2000000
-CUSTOM_SFX_ID_MAX=8999999
-```
-
-The SFX namespace is separate from song IDs, so the same numeric value may exist once as a song ID and once as an SFX ID without a database collision.
-
-### Geometry Dash 2.2 compatibility boundary
-
-The server-side SFX library, upload, storage, range download and level `sfxIDs` persistence are implemented. Stock Geometry Dash handles SFX differently from custom songs: songs receive an explicit download URL through song metadata, while SFX belong to the game's audio-library/CDN system. The exact stock-client SFX discovery/request path still requires separate compatibility work.
-
-Do not treat successful browser download of an SFX as proof that an unmodified Geometry Dash client will request that same URL.
-
-## Database migrations
-
-`0010_media_dashboard.sql` creates the local SFX/media tables. `0011_public_media_rate_limits.sql` adds persistent anonymous-upload rate-limit state.
-
-Only host audio that you are permitted to distribute.
+- `0010_media_dashboard.sql` — local media/SFX tables;
+- `0011_public_media_rate_limits.sql` — upload limiter state;
+- `0019_event_claims_and_media_login.sql` — authenticated media login/audit.

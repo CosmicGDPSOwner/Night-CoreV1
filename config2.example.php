@@ -7,6 +7,7 @@ declare(strict_types=1);
  *
  * Copy this file to /var/www/nightcore/config2.php and edit it through SFTP.
  * config2.php is ignored by Git and is not overwritten by git pull.
+ * Run `php -l config2.php` after every edit.
  */
 return [
     // true: users may schedule deletion and the cron worker processes due requests.
@@ -18,7 +19,8 @@ return [
     'session_idle_timeout_seconds' => 1800,
 
     // Maximum browser session lifetime from sign-in, in seconds.
-    // 0 disables the absolute timeout. Setting both session values to 0 makes
-    // dashboard, staff and event sessions last until logout or another security check invalidates them.
+    // 0 disables the absolute timeout. Setting both session values to 0 removes
+    // automatic time expiry only; logout, account/permission checks and browser
+    // fingerprint validation still invalidate access.
     'session_absolute_timeout_seconds' => 28800,
 ];

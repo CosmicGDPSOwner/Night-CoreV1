@@ -2,54 +2,123 @@
 
 **English** | [Русский](README.ru.md)
 
-Night Core V1 is a **universal Geometry Dash private-server core** developed for NightGDPS but designed so other GDPS installations can configure and use the same shared core.
+Night Core V1 is a universal Geometry Dash private-server core derived from the Cvolton-compatible protocol surface and reorganized into reusable PHP modules. It targets PHP 8.1+ and MySQL/MariaDB, keeps the game-facing wire format compatible, and adds first-party account, staff, Event Level and media administration.
 
-It keeps Geometry Dash/Cvolton compatibility at the protocol boundary while moving server behavior into smaller reusable modules.
+## Current architecture
 
-## Current principles
+- thin public endpoint files under `public/`;
+- reusable application, protocol, security and domain services under `src/`;
+- prepared PDO statements and validated internal table names;
+- ordered SQL migrations under `migrations/`;
+- shared legacy GJP/GJP2 authentication;
+- installation-local settings through `.env`, `config/media.php` and `config2.php`;
+- CLI installer, migration runner, diagnostics and account-deletion worker;
+- DB-free and MariaDB-backed test suites.
 
-- Geometry Dash 2.2-compatible endpoint behavior.
-- Installation-neutral server name, base path and database settings.
-- Optional database table prefix for fresh installations.
-- Thin public endpoints; SQL and business logic live in `src/`.
-- Explicit ordered SQL migrations.
-- Shared GJP/GJP2 authentication instead of copy-pasted endpoint auth.
-- MySQL/MariaDB production target.
-- NightGDPS features are optional modules, not assumptions inside the common core.
-- No production passwords, tokens or hosting credentials in Git.
+The compatibility reference remains `Cvolton/GMDprivateServer` at commit `719dfe36c622a54c8162b07967241fce79b2497c`. Night Core is a modified/derived GPLv3 project; see `LICENSE` and `docs/UPSTREAM.md`.
 
-## Upstream baseline
+## Implemented game/server features
 
-Compatibility reference: `Cvolton/GMDprivateServer` at commit `719dfe36c622a54c8162b07967241fce79b2497c`.
+- account registration and login through both root and `/accounts/` compatibility paths;
+- account/profile, level, social, progress, comment and moderation endpoints;
+- stock moderator-panel rating compatibility;
+- reusable role-based access control with native Geometry Dash moderator badges;
+- in-game staff commands for rating, demon difficulty, account bans and leaderboard bans;
+- queued and forced Daily/Weekly rotation commands;
+- Geometry Dash 2.207 Event Level response, timely download and reward claim ledger;
+- Newgrounds/Boomlings song lookup and local MP3 caching;
+- server-hosted MP3 song library and separate Ogg SFX library;
+- account lifecycle controls with optional scheduled anonymization.
 
-Night Core V1 is a modified/derived project and preserves the applicable GPLv3 requirements. See `LICENSE` and `docs/UPSTREAM.md`.
+## Web interfaces
 
-## Implemented
+### `/dashboard.php`
 
-- reusable configuration and PDO database layer;
-- safe table-prefix handling and schema inspection;
-- ordered migration runner;
-- production installer and deployment doctor;
-- health and readiness endpoints;
-- fresh-install account schema;
-- account/profile, level, content, social, progress and moderation protocol modules;
-- `registerGJAccount.php` and `loginGJAccount.php` compatibility paths;
-- password + GJP2 hashing compatible with the Cvolton implementation;
-- shared legacy GJP/GJP2 authenticator;
-- login rate limiting;
-- optional legacy UDID level ownership migration;
-- automatic Newgrounds custom-song lookup and local caching;
-- server-hosted MP3 custom-song library with generated Song IDs;
-- optional public media dashboard for MP3 songs and Ogg SFX with owner-only server-local limits;
-- separate server-hosted SFX storage/download library pending final stock-client request-path validation;
-- DB-free self-test plus MariaDB integration/baseline CI;
-- PHP 8.1/8.2/8.3 CI checks.
+The canonical public dashboard provides two tabs:
 
-Both `/accounts/loginGJAccount.php` and `/loginGJAccount.php` compatibility paths are provided, with the same rule for registration.
+- **Songs / SFX** — public read-only libraries; uploads appear only after an active, non-banned GDPS account signs in;
+- **Daily / Weekly / Event** — public current rotation cards in `name / author / #ID` format.
 
-## Quick local test
+The account dialog supports registration, sign-in, profile security preferences, scheduled account deletion when enabled, and sign-out. `/mediaAdmin.php` remains a compatibility redirect to `/dashboard.php`.
 
-With Docker Desktop installed:
+### `/staffAdmin.php`
+
+Accounts with `staff.manage` can create roles, choose granular permissions, configure native moderator badges, assign staff and remove assignments. Bootstrap owners from `CORE_ADMIN_ACCOUNT_IDS` always retain all permissions and cannot be demoted through the panel.
+
+### `/eventAdmin.php`
+
+Authorized owners/staff can inspect Event records, reward claims and audit rows, and end or cancel scheduled/active Events. Event creation and rotation changes are performed through the protected Geometry Dash comment commands.
+
+## Central web-security module
+
+`src/Web/Security/` is the shared protection layer for the three browser panels. It provides:
+
+- strict cookie-only PHP sessions;
+- session ID rotation after authentication and logout;
+- configurable inactivity and absolute timeouts;
+- active/ban/deletion account-state validation on every authenticated request;
+- browser fingerprint binding;
+- per-panel CSRF tokens;
+- nonce-based Content Security Policy for scripts and style blocks;
+- frame denial, MIME-sniffing protection, referrer, permissions and cross-origin headers;
+- private-page cache and indexing controls;
+- shared hashed login-throttle identifiers for staff/Event panel attempts.
+
+See `docs/WEB_SECURITY.md`.
+
+## Private configuration
+
+### `config2.php`
+
+Copy the tracked example to the project root:
+
+```bash
+cp config2.example.php config2.php
+```
+
+It controls:
+
+```php
+return [
+    'account_deletion_enabled' => true,
+    'session_idle_timeout_seconds' => 1800,
+    'session_absolute_timeout_seconds' => 28800,
+];
+```
+
+A timeout value of `0` disables that timeout. Setting both session values to `0` keeps a panel session until sign-out or another security check invalidates it. `config2.php` is ignored by Git. See `docs/CONFIG2.md`.
+
+### `config/media.php`
+
+Copy `config/media.php.example` to configure public authenticated uploads, per-file limits and private upload safeguards. The dashboard does not disclose connection/cooldown/quota values. See `docs/MEDIA_DASHBOARD.md`.
+
+### `.env`
+
+Start from `.env.production.example`. Keep database credentials, hash keys and `CORE_ADMIN_ACCOUNT_IDS` private. Never commit the production `.env`.
+
+## Production commands
+
+```bash
+php bin/nightcore install
+php bin/nightcore migrate
+php bin/nightcore doctor
+```
+
+Before accepting traffic, `php bin/nightcore doctor` should report no critical failures and `/ready.php` should return HTTP 200 with `ready`.
+
+When account deletion is enabled, run the worker periodically:
+
+```bash
+php bin/nightcore accounts:purge-due
+```
+
+Example hourly cron:
+
+```cron
+17 * * * * cd /var/www/nightcore && /usr/bin/php bin/nightcore accounts:purge-due >/dev/null 2>&1
+```
+
+## Local test
 
 ```bash
 docker compose up --build -d
@@ -58,57 +127,21 @@ docker compose exec web php bin/nightcore doctor
 docker compose exec web php bin/nightcore self-test
 ```
 
-Then open `http://127.0.0.1:8080/health.php`.
+The CI baseline additionally checks syntax, web security, account-comment wire format, MariaDB integration, custom songs, the media dashboard, account security/deletion and Event reward claims.
 
-Detailed test steps are in `docs/TESTING.md`.
+## Compatibility boundaries
 
-## Production deployment
+- Night Core primarily targets Geometry Dash 2.2/2.207 behavior; it does not claim the complete multi-version client coverage of every historical Cvolton endpoint.
+- Browser SFX upload/storage/download is implemented, but final discovery by an unmodified stock Geometry Dash SFX library still requires request-path validation.
+- Cloudflare, Nginx/firewall rules, PHP-FPM limits and backups remain infrastructure responsibilities; application rate limits are not DDoS protection.
 
-Start from `.env.production.example`, point the web-server document root to `public/`, and run:
+## Documentation
 
-```bash
-php bin/nightcore install
-```
+- `docs/WEB_SECURITY.md` — shared browser-panel protection;
+- `docs/CONFIG2.md` — private deletion/session policy;
+- `docs/DASHBOARD_ACCOUNT_PANEL.md` — account profile and lifecycle;
+- `docs/MEDIA_DASHBOARD.md` — authenticated media library;
+- `docs/STAFF_RBAC.md` — roles, permissions and commands;
+- `docs/EVENTS.md` — Daily/Weekly/Event behavior.
 
-Before accepting traffic, `php bin/nightcore doctor` must have no critical failures and `/ready.php` should return HTTP 200 with `ready`.
-
-See `docs/DEPLOYMENT.md` for the deployment and update procedure.
-
-## Staging rollout
-
-Before production, deploy the exact candidate revision with `.env.staging.example` against a separate database and storage directory. Once the staging host is reachable, run:
-
-```bash
-php bin/nightcore-smoke https://staging-api.example.com
-```
-
-The smoke client checks `/health.php`, `/ready.php` and `/info.php` without creating game data. After that passes, validate the full flow with a real Geometry Dash 2.2 client.
-
-See `docs/STAGING.md` for the complete rollout and promotion gate.
-
-## Media dashboard
-
-`/mediaAdmin.php` is an optional public media library/uploader. It accepts MP3 songs and Ogg SFX without an admin token when the owner enables `public_uploads` in the private, Git-ignored `config/media.php` file.
-
-Visitors can see the active limits but cannot change limits or delete media. The owner sets `song_max_mib` and `sfx_max_mib` in `config/media.php`; PHP/Nginx/provider limits still form an upper infrastructure ceiling.
-
-See `docs/MEDIA_DASHBOARD.md` for setup, permissions, public-upload security and the current SFX stock-client compatibility boundary.
-
-## Custom songs
-
-Night Core has two independent custom-song paths:
-
-- external Newgrounds/Boomlings lookup for unknown IDs when the upstream is reachable;
-- a server-hosted local MP3 library managed through the public media page when enabled or the legacy token-protected `/songAdmin.php` owner uploader.
-
-New local uploads use a configurable seven-digit Song ID range, `2000000..8999999` by default, and are served by Night Core itself. Older high-ID local songs remain valid but are not reused for new allocations.
-
-See `docs/CUSTOM_SONGS.md` for local uploads and `docs/NEWGROUNDS.md` for external lookup.
-
-## Safety
-
-Do **not** point an untested build at a production GDPS database. Test against a fresh database or a disposable copy first.
-
-## Documentation languages
-
-English documentation lives in `README.md` and `docs/`. Russian documentation is maintained in `README.ru.md` and `docs/ru/`.
+Russian translations live in `docs/ru/`.

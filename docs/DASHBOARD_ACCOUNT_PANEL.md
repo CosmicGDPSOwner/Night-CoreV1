@@ -1,37 +1,29 @@
 # Dashboard account panel
 
-`/dashboard.php` is the canonical public song and SFX dashboard. `/mediaAdmin.php` remains only as a compatibility redirect.
+`/dashboard.php` is the canonical public dashboard. Its account dialog uses the same GDPS accounts as the game.
 
-The top-right **Sign in / Register** button opens an account modal with:
+## Available actions
 
-- sign-in using an existing GDPS account;
-- registration through the same account service, password hashing and activation policy as the game;
-- the signed-in profile and sign-out action;
-- scheduled account deletion controls.
+Logged-out users can register or sign in. A signed-in user can:
 
-Upload and registration protection remains enforced entirely on the server. The dashboard deliberately does not publish connection quotas, cooldown values, registration thresholds or network-derived identifiers.
+- see the account name and numeric account ID;
+- sign out;
+- enable/disable repeated password confirmation for sensitive browser actions;
+- schedule or cancel account deletion when the server owner enables the feature;
+- upload local media when public authenticated uploads are enabled.
 
-Account deletion requires both the current password and the exact account username. The user can choose 7, 14, 30, 60 or 90 days and cancel the request before it becomes due. When the deadline is reached, the deletion worker disables the account and anonymizes its username, email and credentials. Published levels remain available under a deleted-user name. Bootstrap administrator IDs configured in `CORE_ADMIN_ACCOUNT_IDS` cannot schedule deletion from the public dashboard.
+Changing the password-confirmation preference always requires the current password. When repeated confirmation is disabled, exact username confirmation is still required to schedule deletion.
 
-Run the deletion worker periodically, for example once per hour:
+## Account deletion
 
-```bash
-php /var/www/nightcore/bin/nightcore accounts:purge-due
-```
+Available periods are 7, 14, 30, 60 and 90 days. Bootstrap administrators in `CORE_ADMIN_ACCOUNT_IDS` cannot schedule their own deletion through the public panel.
 
-Example cron entry:
+At the deadline, `php bin/nightcore accounts:purge-due` anonymizes credentials/email/name and disables the account while preserving published levels. The global switch is `account_deletion_enabled` in private `config2.php`. Disabling it pauses new and already scheduled deletion processing; re-enabling resumes stored schedules.
 
-```cron
-17 * * * * cd /var/www/nightcore && /usr/bin/php bin/nightcore accounts:purge-due >/dev/null 2>&1
-```
+## Registration protection
 
-All account and dashboard database operations use parameterized PDO statements. User-provided values are bound as parameters rather than concatenated into SQL. The dashboard also uses CSRF tokens, strict session cookies, session ID rotation, browser-bound sessions, timeouts, content security headers and server-side input validation.
+Registration uses the shared account service and server-side validation. Private `.env` settings control registration limits and the HMAC key. The dashboard does not disclose those values.
 
-Recommended production registration settings remain private in `.env`:
+## Web protection
 
-```env
-REGISTRATION_MAX_PER_IP=2
-REGISTRATION_MAX_PER_SUBNET=10
-REGISTRATION_WINDOW_SECONDS=86400
-REGISTRATION_IP_HASH_KEY=long_random_secret
-```
+The account panel is protected by the shared `src/Web/Security/` module: strict sessions, browser binding, configurable timeouts, CSRF, nonce CSP and account-state validation. See `WEB_SECURITY.md` and `CONFIG2.md`.

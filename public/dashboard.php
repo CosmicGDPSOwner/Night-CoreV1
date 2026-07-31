@@ -10,12 +10,20 @@ use NightCore\Core\MediaAccountAccess;
 use NightCore\Core\PublicMediaUploadGuard;
 use NightCore\Domain\Accounts\AccountDeletionService;
 use NightCore\Domain\Accounts\SensitiveActionConfirmationService;
-use PDO;
+use NightCore\Web\Security\PanelSecurity;
+use NightCore\Web\Security\RepositoryAccountStateProvider;
 
 $root = dirname(__DIR__);
 /** @var Application $app */
 $app = require $root . '/bootstrap.php';
 $serverPolicy = AccountPolicy::load($root);
+$panelSecurity = PanelSecurity::boot(
+    'nightcore_dashboard_account',
+    'dashboard',
+    $serverPolicy,
+    new RepositoryAccountStateProvider($app->accountRepository())
+);
+
 $policy = $app->mediaPolicy();
 $publicUploads = $policy->publicUploadsEnabled();
 $guard = new PublicMediaUploadGuard($app->db(), $app->tables(), $policy);
@@ -41,20 +49,7 @@ $confirmation = new SensitiveActionConfirmationService(
     $app->passwordService()
 );
 
-$isHttps = !empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off';
-ini_set('session.use_strict_mode', '1');
-ini_set('session.use_only_cookies', '1');
-session_name('nightcore_dashboard_account');
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path' => '/',
-    'secure' => $isHttps,
-    'httponly' => true,
-    'samesite' => 'Strict',
-]);
-session_start();
-
-$escape = static fn (string $value): string => htmlspecialchars(
+$escape = static fn(string $value): string => htmlspecialchars(
     $value,
     ENT_QUOTES | ENT_SUBSTITUTE,
     'UTF-8'
@@ -67,22 +62,6 @@ $deletionStatus = null;
 $securityStatus = null;
 $requestedTab = isset($_GET['tab']) && is_string($_GET['tab']) ? strtolower($_GET['tab']) : 'media';
 $activeTab = in_array($requestedTab, ['media', 'rotations'], true) ? $requestedTab : 'media';
-
-$csrf = static function (): string {
-    if (!isset($_SESSION['dashboard_csrf'])
-        || !is_string($_SESSION['dashboard_csrf'])
-        || strlen($_SESSION['dashboard_csrf']) < 32) {
-        $_SESSION['dashboard_csrf'] = bin2hex(random_bytes(24));
-    }
-    return $_SESSION['dashboard_csrf'];
-};
-
-$requireCsrf = static function () use ($csrf): void {
-    $provided = isset($_POST['csrf']) && is_string($_POST['csrf']) ? $_POST['csrf'] : '';
-    if ($provided === '' || !hash_equals($csrf(), $provided)) {
-        throw new RuntimeException('Invalid request token. Refresh the page and try again.');
-    }
-};
 
 $uploadError = static function (array $file, string $label): void {
     $code = isset($file['error']) ? (int) $file['error'] : UPLOAD_ERR_NO_FILE;
@@ -101,8 +80,7 @@ $uploadError = static function (array $file, string $label): void {
     throw new RuntimeException($messages[$code] ?? 'Unknown file upload error.');
 };
 
-$clientIp = static fn (): string => ClientIp::detect(Config::getBool('TRUST_PROXY_HEADERS', false));
-
+$clientIp = static fn(): string => ClientIp::detect(Config::getBool('TRUST_PROXY_HEADERS', false));
 $publicBaseUrl = static function (string $configKey, string $fallbackKey = ''): string {
     $baseUrl = trim(Config::get($configKey, '') ?? '');
     if ($baseUrl === '' && $fallbackKey !== '') {
@@ -130,55 +108,19 @@ $publicBaseUrl = static function (string $configKey, string $fallbackKey = ''): 
     return $scheme . '://' . $host . $basePath;
 };
 
-$now = time();
-$fingerprint = hash('sha256', substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 512));
-$loggedAccountID = isset($_SESSION['dashboard_account_id']) ? (int) $_SESSION['dashboard_account_id'] : 0;
-$loggedAccount = $loggedAccountID > 0 ? $app->accountRepository()->findById($loggedAccountID) : null;
-
-if ($loggedAccountID > 0) {
-    $issuedAt = (int) ($_SESSION['dashboard_issued_at'] ?? 0);
-    $lastSeen = (int) ($_SESSION['dashboard_last_seen'] ?? 0);
-    $sessionFingerprint = (string) ($_SESSION['dashboard_fingerprint'] ?? '');
-    $sessionInvalid = $serverPolicy->sessionExpired($issuedAt, $lastSeen, $now)
-        || !hash_equals($fingerprint, $sessionFingerprint)
-        || $loggedAccount === null
-        || (int) ($loggedAccount['isActive'] ?? 0) !== 1
-        || $app->accountRepository()->isAccountBanned($loggedAccountID)
-        || $app->accountRepository()->isDeletionDue($loggedAccountID, $now);
-    if ($sessionInvalid) {
-        $_SESSION = [];
-        session_regenerate_id(true);
-        $loggedAccountID = 0;
-        $loggedAccount = null;
-        $error = 'Dashboard session expired or the account is unavailable. Sign in again.';
-        $authPanelOpen = true;
-    } else {
-        $_SESSION['dashboard_last_seen'] = $now;
-    }
+$hadSession = $panelSecurity->accountId() > 0;
+if ($hadSession && !$panelSecurity->validate()) {
+    $error = 'Dashboard session expired or the account is unavailable. Sign in again.';
+    $authPanelOpen = true;
 }
-
-$startAccountSession = static function (array $account) use (
-    &$loggedAccountID,
-    &$loggedAccount,
-    $fingerprint,
-    $deletion
-): void {
-    session_regenerate_id(true);
-    $_SESSION['dashboard_account_id'] = (int) $account['accountID'];
-    $_SESSION['dashboard_issued_at'] = time();
-    $_SESSION['dashboard_last_seen'] = time();
-    $_SESSION['dashboard_fingerprint'] = $fingerprint;
-    unset($_SESSION['dashboard_csrf']);
-    $loggedAccountID = (int) $account['accountID'];
-    $loggedAccount = $account;
-    $deletion->touchActivity($loggedAccountID);
-};
+$loggedAccountID = $panelSecurity->accountId();
+$loggedAccount = $panelSecurity->account();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $action = isset($_POST['action']) && is_string($_POST['action']) ? $_POST['action'] : '';
     $authTab = $action === 'register' ? 'register' : 'login';
     try {
-        $requireCsrf();
+        $panelSecurity->requireCsrf($_POST['csrf'] ?? '');
 
         if ($action === 'login') {
             $account = $access->login(
@@ -186,13 +128,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 (string) ($_POST['password'] ?? ''),
                 $clientIp()
             );
-            $startAccountSession($account);
+            $panelSecurity->signIn($account);
+            $loggedAccountID = $panelSecurity->accountId();
+            $loggedAccount = $panelSecurity->account();
+            $deletion->touchActivity($loggedAccountID);
             $message = 'Signed in as ' . (string) $account['userName'] . '.';
         } elseif ($action === 'register') {
             if (!$app->schema()->tableExists('core_registration_attempts')) {
                 throw new RuntimeException('Account registration is temporarily unavailable.');
             }
-
             $username = trim((string) ($_POST['username'] ?? ''));
             $email = trim((string) ($_POST['email'] ?? ''));
             $password = (string) ($_POST['password'] ?? '');
@@ -218,7 +162,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if ($account !== null
                 && (int) ($account['isActive'] ?? 0) === 1
                 && !$app->accountRepository()->isAccountBanned((int) $account['accountID'])) {
-                $startAccountSession($account);
+                $panelSecurity->signIn($account);
+                $loggedAccountID = $panelSecurity->accountId();
+                $loggedAccount = $panelSecurity->account();
+                $deletion->touchActivity($loggedAccountID);
                 $message = 'Account created and signed in as ' . (string) $account['userName'] . '.';
                 $authPanelOpen = true;
             } else {
@@ -243,13 +190,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if ($loggedAccountID <= 0 || $loggedAccount === null) {
                 throw new RuntimeException('Sign in before changing account deletion settings.');
             }
-            $requirePassword = $confirmation->requiresPassword($loggedAccountID);
             $deletionStatus = $deletion->schedule(
                 $loggedAccountID,
                 (string) ($_POST['current_password'] ?? ''),
                 (string) ($_POST['confirm_username'] ?? ''),
                 (int) ($_POST['retention_days'] ?? 0),
-                $requirePassword
+                $confirmation->requiresPassword($loggedAccountID)
             );
             $message = 'Account deletion scheduled for '
                 . gmdate('Y-m-d H:i', (int) $deletionStatus['deletionScheduledAt']) . ' UTC.';
@@ -266,8 +212,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $message = 'Scheduled account deletion cancelled.';
             $authPanelOpen = true;
         } elseif ($action === 'logout') {
-            $_SESSION = [];
-            session_regenerate_id(true);
+            $panelSecurity->signOut();
             $loggedAccountID = 0;
             $loggedAccount = null;
             $message = 'Signed out.';
@@ -285,8 +230,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 }
                 $upload = $_FILES['song'];
                 $uploadError($upload, 'MP3');
-                $tmpName = isset($upload['tmp_name']) && is_string($upload['tmp_name']) ? $upload['tmp_name'] : '';
-                $originalName = isset($upload['name']) && is_string($upload['name']) ? $upload['name'] : 'song.mp3';
+                $tmpName = is_string($upload['tmp_name'] ?? null) ? $upload['tmp_name'] : '';
+                $originalName = is_string($upload['name'] ?? null) ? $upload['name'] : 'song.mp3';
                 if ($tmpName === '' || !is_uploaded_file($tmpName)) {
                     throw new RuntimeException('The uploaded MP3 was not received as a valid HTTP upload.');
                 }
@@ -299,8 +244,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 $result = $songService->import(
                     $tmpName,
                     $originalName,
-                    isset($_POST['name']) && is_string($_POST['name']) ? $_POST['name'] : '',
-                    isset($_POST['author']) && is_string($_POST['author']) ? $_POST['author'] : '',
+                    is_string($_POST['name'] ?? null) ? $_POST['name'] : '',
+                    is_string($_POST['author'] ?? null) ? $_POST['author'] : '',
                     $publicBaseUrl('CUSTOM_SONG_PUBLIC_BASE_URL')
                 );
                 $access->recordUpload($loggedAccountID, 'song', $result, $originalName, $clientIp());
@@ -311,8 +256,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 }
                 $upload = $_FILES['sfx'];
                 $uploadError($upload, 'OGG');
-                $tmpName = isset($upload['tmp_name']) && is_string($upload['tmp_name']) ? $upload['tmp_name'] : '';
-                $originalName = isset($upload['name']) && is_string($upload['name']) ? $upload['name'] : 'sfx.ogg';
+                $tmpName = is_string($upload['tmp_name'] ?? null) ? $upload['tmp_name'] : '';
+                $originalName = is_string($upload['name'] ?? null) ? $upload['name'] : 'sfx.ogg';
                 if ($tmpName === '' || !is_uploaded_file($tmpName)) {
                     throw new RuntimeException('The uploaded OGG was not received as a valid HTTP upload.');
                 }
@@ -325,7 +270,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 $result = $sfxService->import(
                     $tmpName,
                     $originalName,
-                    isset($_POST['name']) && is_string($_POST['name']) ? $_POST['name'] : '',
+                    is_string($_POST['name'] ?? null) ? $_POST['name'] : '',
                     $publicBaseUrl('CUSTOM_SFX_PUBLIC_BASE_URL', 'CUSTOM_SONG_PUBLIC_BASE_URL')
                 );
                 $access->recordUpload($loggedAccountID, 'sfx', $result, $originalName, $clientIp());
@@ -383,10 +328,10 @@ $sfxRows = $app->customSfx()->list(100);
 /** @var array<int,array<string,mixed>|null> $rotationSlots */
 $rotationSlots = [0 => null, 1 => null, 2 => null];
 $rotationError = '';
+$now = time();
 if ($activeTab === 'rotations') {
     try {
-        if (!$app->schema()->tableExists('core_daily_levels')
-            || !$app->schema()->tableExists('levels')) {
+        if (!$app->schema()->tableExists('core_daily_levels') || !$app->schema()->tableExists('levels')) {
             throw new RuntimeException('Rotation data is not available yet.');
         }
         $rotationQuery = $app->db()->prepare(
@@ -395,16 +340,12 @@ if ($activeTab === 'rotations') {
             . " COALESCE(NULLIF(l.userName, ''), 'Unknown author') AS authorName"
             . ' FROM ' . $app->tables()->get('core_daily_levels') . ' d'
             . ' LEFT JOIN ' . $app->tables()->get('levels') . ' l ON l.levelID = d.levelID'
-            . ' WHERE d.slotType IN (0, 1, 2)'
-            . ' AND d.startsAt <= :startedAt'
+            . ' WHERE d.slotType IN (0, 1, 2) AND d.startsAt <= :startedAt'
             . ' AND (d.endsAt = 0 OR d.endsAt > :endsAt)'
             . ' ORDER BY d.slotType ASC, d.startsAt DESC, d.slotID DESC'
         );
-        $rotationQuery->execute([
-            ':startedAt' => $now,
-            ':endsAt' => $now,
-        ]);
-        foreach ($rotationQuery->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $rotationQuery->execute([':startedAt' => $now, ':endsAt' => $now]);
+        foreach ($rotationQuery->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $slotType = (int) ($row['slotType'] ?? -1);
             if (array_key_exists($slotType, $rotationSlots) && $rotationSlots[$slotType] === null) {
                 $rotationSlots[$slotType] = $row;
@@ -415,14 +356,10 @@ if ($activeTab === 'rotations') {
     }
 }
 
-$csrfValue = $csrf();
-$sessionDescription = $serverPolicy->sessionDescription();
-
-header('Content-Type: text/html; charset=utf-8');
-header("Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
-header('Referrer-Policy: same-origin');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
+$csrfValue = $panelSecurity->csrfToken();
+$sessionDescription = $panelSecurity->sessionDescription();
+$nonce = $panelSecurity->nonce();
+$panelSecurity->sendHeaders();
 ?>
 <!doctype html>
 <html lang="en">
@@ -430,46 +367,25 @@ header('X-Frame-Options: DENY');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Night Core dashboard</title>
-<style>
+<style nonce="<?= $escape($nonce) ?>">
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#090b10;color:#eef2ff;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1180px;margin:0 auto;padding:28px 18px 60px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.brand{min-width:0}.brand h1{font-size:27px;margin:0}.brand p{margin:4px 0 0;color:#98a2b3}.page-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}.page-tab{display:inline-flex;align-items:center;padding:9px 13px;border-radius:10px;background:#171c26;border:1px solid #2c3443;color:#aeb8ca;text-decoration:none;font-weight:750}.page-tab.active{background:#6d5dfc;border-color:#6d5dfc;color:#fff}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:#11151d;border:1px solid #252b38;border-radius:16px;padding:20px;box-shadow:0 10px 30px #0004}.wide{grid-column:1/-1}h2,h3{margin:0 0 14px}h2{font-size:18px}h3{font-size:16px}label{display:block;margin:12px 0 5px;color:#cbd5e1;font-weight:650}input,select{width:100%;padding:10px 12px;border-radius:9px;border:1px solid #384152;background:#090c12;color:#fff}input[type=checkbox]{width:auto;margin:0}button{border:0;border-radius:9px;padding:10px 14px;background:#6d5dfc;color:#fff;font-weight:750;cursor:pointer;margin-top:14px}.row{display:flex;gap:12px;align-items:end}.row>div{flex:1}.notice{padding:12px 14px;border-radius:11px;margin-bottom:16px}.ok{background:#143620;border:1px solid #245a35}.err{background:#421d22;border:1px solid #71303a}.muted,small{color:#98a2b3}.metric{font-size:27px;font-weight:800}.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#222938;color:#cbd5e1;font-size:12px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #252b38;vertical-align:middle}th{color:#98a2b3;font-size:12px;text-transform:uppercase;letter-spacing:.04em}code{font-size:12px;word-break:break-all}.account-button{margin:0;white-space:nowrap;display:flex;align-items:center;gap:8px}.account-dot{width:8px;height:8px;border-radius:50%;background:#3ddc84}.locked{text-align:center;padding-block:28px}.locked button{margin-top:8px}.rotation-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.rotation-card{min-height:150px}.rotation-line{font-size:17px;font-weight:800;overflow-wrap:anywhere}.rotation-kind{display:block;margin-bottom:12px;color:#98a2b3;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}dialog{width:min(560px,calc(100vw - 28px));max-height:calc(100vh - 32px);overflow:auto;border:1px solid #303849;border-radius:18px;padding:0;background:#11151d;color:#eef2ff;box-shadow:0 24px 80px #000b}dialog::backdrop{background:#03050acc;backdrop-filter:blur(5px)}.dialog-shell{padding:20px}.dialog-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.dialog-header h2{margin:0}.close-button{margin:0;padding:5px 10px;background:#222938;font-size:20px;line-height:1}.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0}.tab{margin:0;background:#222938;color:#aeb8ca}.tab.active{background:#6d5dfc;color:#fff}.auth-panel[hidden]{display:none}.auth-panel p{margin-top:0}.secondary{background:#2a3140}.danger{background:#9b2635}.account-summary{padding:13px;border:1px solid #303849;background:#0b0e14;border-radius:12px;margin:16px 0}.account-summary strong{display:block;font-size:18px}.profile-section{border-top:1px solid #303849;margin-top:20px;padding-top:20px}.scheduled{padding:12px;border-radius:10px;background:#3a2a13;border:1px solid #705225}.switch-row{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #303849;border-radius:12px;background:#0b0e14}.switch-row label{margin:0}.warning{padding:10px 12px;border-radius:10px;background:#3a2a13;border:1px solid #705225;color:#f8d49a}@media(max-width:900px){.rotation-grid{grid-template-columns:1fr}}@media(max-width:780px){.grid{grid-template-columns:1fr}.row{display:block}.wide{grid-column:auto}.table-wrap{overflow-x:auto}header{align-items:flex-start}.account-button{padding:9px 11px}.brand h1{font-size:23px}}
 </style>
 </head>
 <body><main>
-<header>
-<div class="brand"><h1>Night Core dashboard</h1><p>Public GDPS content and account features.</p></div>
-<button type="button" class="account-button" data-open-account><?php if ($loggedAccount !== null): ?><span class="account-dot"></span><?= $escape((string) $loggedAccount['userName']) ?><?php else: ?>Sign in / Register<?php endif; ?></button>
-</header>
-<nav class="page-tabs" aria-label="Dashboard sections">
-<a class="page-tab<?= $activeTab === 'media' ? ' active' : '' ?>" href="dashboard.php?tab=media">Songs / SFX</a>
-<a class="page-tab<?= $activeTab === 'rotations' ? ' active' : '' ?>" href="dashboard.php?tab=rotations">Daily / Weekly / Event</a>
-</nav>
+<header><div class="brand"><h1>Night Core dashboard</h1><p>Public GDPS content and account features.</p></div><button type="button" class="account-button" data-open-account><?php if ($loggedAccount !== null): ?><span class="account-dot"></span><?= $escape((string) $loggedAccount['userName']) ?><?php else: ?>Sign in / Register<?php endif; ?></button></header>
+<nav class="page-tabs" aria-label="Dashboard sections"><a class="page-tab<?= $activeTab === 'media' ? ' active' : '' ?>" href="dashboard.php?tab=media">Songs / SFX</a><a class="page-tab<?= $activeTab === 'rotations' ? ' active' : '' ?>" href="dashboard.php?tab=rotations">Daily / Weekly / Event</a></nav>
 <?php if ($message !== ''): ?><div class="notice ok"><?= $escape($message) ?></div><?php endif; ?>
 <?php if ($error !== ''): ?><div class="notice err"><?= $escape($error) ?></div><?php endif; ?>
 
 <?php if ($activeTab === 'rotations'): ?>
 <section class="card" style="margin-bottom:16px"><h2>Current GDPS rotations</h2><p class="muted">Active Daily, Weekly and Event slots are read directly from this GDPS.</p></section>
 <?php if ($rotationError !== ''): ?><div class="notice err"><?= $escape($rotationError) ?></div><?php endif; ?>
-<div class="rotation-grid">
-<?php foreach ([0 => 'Daily', 1 => 'Weekly', 2 => 'Event'] as $slotType => $label): $slot = $rotationSlots[$slotType]; ?>
-<section class="card rotation-card">
-<span class="rotation-kind"><?= $escape($label) ?></span>
-<?php if ($slot === null): ?>
-<p class="muted">No active <?= $escape($label) ?> level.</p>
-<?php else: ?>
-<div class="rotation-line"><?= $escape((string) $slot['levelName']) ?> / <?= $escape((string) $slot['authorName']) ?> / #<?= (int) $slot['levelID'] ?></div>
-<?php endif; ?>
-</section>
-<?php endforeach; ?>
-</div>
+<div class="rotation-grid"><?php foreach ([0 => 'Daily', 1 => 'Weekly', 2 => 'Event'] as $slotType => $label): $slot = $rotationSlots[$slotType]; ?><section class="card rotation-card"><span class="rotation-kind"><?= $escape($label) ?></span><?php if ($slot === null): ?><p class="muted">No active <?= $escape($label) ?> level.</p><?php else: ?><div class="rotation-line"><?= $escape((string) $slot['levelName']) ?> / <?= $escape((string) $slot['authorName']) ?> / #<?= (int) $slot['levelID'] ?></div><?php endif; ?></section><?php endforeach; ?></div>
 <?php else: ?>
 <div class="grid">
 <section class="card"><h2>Upload limits</h2><div class="row"><div><span class="pill">Songs</span><div class="metric"><?= $songLimitMiB ?> MiB</div></div><div><span class="pill">SFX</span><div class="metric"><?= $sfxLimitMiB ?> MiB</div></div></div><p class="muted">Files are validated by the server before they are stored.</p></section>
 <section class="card"><h2>Library</h2><div class="row"><div><span class="pill">Songs</span><div class="metric"><?= count($songs) ?></div></div><div><span class="pill">SFX</span><div class="metric"><?= count($sfxRows) ?></div></div></div><p class="muted">Browse public media without signing in.</p></section>
-<?php if (!$publicUploads): ?>
-<section class="card wide"><div class="notice err">Media uploads are currently disabled by the server owner.</div></section>
-<?php elseif ($loggedAccount === null): ?>
-<section class="card wide locked"><h2>Uploads are locked</h2><p class="muted">Use the account button in the top-right corner to sign in or create a GDPS account.</p><button type="button" data-open-account>Sign in / Register</button></section>
-<?php else: ?>
+<?php if (!$publicUploads): ?><section class="card wide"><div class="notice err">Media uploads are currently disabled by the server owner.</div></section><?php elseif ($loggedAccount === null): ?><section class="card wide locked"><h2>Uploads are locked</h2><p class="muted">Use the account button to sign in or create a GDPS account.</p><button type="button" data-open-account>Sign in / Register</button></section><?php else: ?>
 <section class="card wide"><span class="pill">Authenticated uploader</span><p>Signed in as <strong><?= $escape((string) $loggedAccount['userName']) ?></strong>.</p><p class="muted">Uploads are checked automatically for file type, integrity and available storage.</p></section>
 <section class="card"><h2>Upload song</h2><form method="post" enctype="multipart/form-data"><input type="hidden" name="action" value="upload_song"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><label>Song title</label><input type="text" name="name" maxlength="255" required><label>Author / artist</label><input type="text" name="author" maxlength="255" required><label>MP3 file</label><input type="file" name="song" accept="audio/mpeg,.mp3" required><small>Maximum file size: <?= $songLimitMiB ?> MiB.</small><br><button type="submit">Upload song</button></form></section>
 <section class="card"><h2>Upload SFX</h2><form method="post" enctype="multipart/form-data"><input type="hidden" name="action" value="upload_sfx"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><label>SFX name</label><input type="text" name="name" maxlength="255" required><label>OGG file</label><input type="file" name="sfx" accept="audio/ogg,.ogg" required><small>Maximum file size: <?= $sfxLimitMiB ?> MiB. OGG only.</small><br><button type="submit">Upload SFX</button></form></section>
@@ -479,60 +395,18 @@ header('X-Frame-Options: DENY');
 </div>
 <?php endif; ?>
 
-<dialog id="account-dialog" data-open="<?= $authPanelOpen ? '1' : '0' ?>" data-tab="<?= $escape($authTab) ?>">
-<div class="dialog-shell">
-<div class="dialog-header"><div><span class="pill">GDPS account</span><h2><?= $loggedAccount !== null ? 'Your profile' : 'Account access' ?></h2></div><button type="button" class="close-button" data-close-account aria-label="Close">×</button></div>
+<dialog id="account-dialog" data-open="<?= $authPanelOpen ? '1' : '0' ?>" data-tab="<?= $escape($authTab) ?>"><div class="dialog-shell"><div class="dialog-header"><div><span class="pill">GDPS account</span><h2><?= $loggedAccount !== null ? 'Your profile' : 'Account access' ?></h2></div><button type="button" class="close-button" data-close-account aria-label="Close">×</button></div>
 <?php if ($loggedAccount !== null): ?>
-<div class="account-summary"><strong><?= $escape((string) $loggedAccount['userName']) ?></strong><span class="muted">Account ID <?= (int) $loggedAccount['accountID'] ?></span></div>
-<p class="muted"><?= $escape($sessionDescription) ?></p>
-<form method="post"><input type="hidden" name="action" value="logout"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><button type="submit" class="secondary">Sign out</button></form>
-
-<div class="profile-section">
-<h3>Security confirmations</h3>
-<?php if ($securityStatus === null): ?>
-<p class="muted">Security confirmation settings are temporarily unavailable. Password confirmation remains enabled.</p>
-<?php else: ?>
-<p class="muted">This setting controls repeated password prompts for account deletion changes, staff role management and event status actions. Signing in and changing this setting always require your password.</p>
-<form method="post">
-<input type="hidden" name="action" value="save_sensitive_confirmation"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>">
-<div class="switch-row"><input id="require-sensitive-password" type="checkbox" name="require_sensitive_password" value="1"<?= $requireSensitivePassword ? ' checked' : '' ?>><label for="require-sensitive-password"><strong>Require current password for every sensitive action</strong><br><small>Recommended. Disable only on a device and browser that nobody else can access.</small></label></div>
-<label>Current password to save this setting</label><input type="password" name="current_password" autocomplete="current-password" required>
-<button type="submit">Save security setting</button>
-</form>
-<?php endif; ?>
-</div>
-
-<div class="profile-section">
-<h3>Account deletion</h3>
-<?php if (!$deletionEnabled): ?>
-<p class="muted">Account deletion is disabled by the server owner.</p>
-<?php elseif ($deletionStatus === null): ?>
-<p class="muted">Account deletion settings are temporarily unavailable.</p>
-<?php elseif ((int) $deletionStatus['deletionScheduledAt'] > 0): ?>
-<div class="scheduled"><strong>Deletion scheduled</strong><br><span class="muted"><?= $escape(gmdate('Y-m-d H:i', (int) $deletionStatus['deletionScheduledAt'])) ?> UTC</span></div>
-<p class="muted">Your account remains active until that date. You can cancel the request before it becomes due.</p>
-<form method="post"><input type="hidden" name="action" value="cancel_deletion"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><?php if ($requireSensitivePassword): ?><label>Current password</label><input type="password" name="current_password" autocomplete="current-password" required><?php endif; ?><button type="submit" class="secondary">Cancel deletion</button></form>
-<?php else: ?>
-<p class="muted">Choose how long the account should remain active. When the period ends, login credentials and email are anonymized and the account is disabled. Published levels remain under a deleted-user name.</p>
-<?php if (!$requireSensitivePassword): ?><div class="warning">Per-action password confirmation is disabled. Exact username confirmation is still mandatory.</div><?php endif; ?>
-<form method="post">
-<input type="hidden" name="action" value="schedule_deletion"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>">
-<label>Delete after</label><select name="retention_days" required><?php foreach ($deletion->retentionOptions() as $days): ?><option value="<?= $days ?>"<?= $days === 14 ? ' selected' : '' ?>><?= $days ?> days</option><?php endforeach; ?></select>
-<?php if ($requireSensitivePassword): ?><label>Current password</label><input type="password" name="current_password" autocomplete="current-password" required><?php endif; ?>
-<label>Type your username to confirm</label><input type="text" name="confirm_username" maxlength="20" autocomplete="off" required>
-<button type="submit" class="danger">Schedule account deletion</button>
-</form>
-<?php endif; ?>
-</div>
+<div class="account-summary"><strong><?= $escape((string) $loggedAccount['userName']) ?></strong><span class="muted">Account ID <?= (int) $loggedAccount['accountID'] ?></span></div><p class="muted"><?= $escape($sessionDescription) ?></p><form method="post"><input type="hidden" name="action" value="logout"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><button type="submit" class="secondary">Sign out</button></form>
+<div class="profile-section"><h3>Security confirmations</h3><?php if ($securityStatus === null): ?><p class="muted">Security confirmation settings are temporarily unavailable. Password confirmation remains enabled.</p><?php else: ?><p class="muted">Controls repeated password prompts for account deletion, staff role management and Event actions. Changing this setting always requires your password.</p><form method="post"><input type="hidden" name="action" value="save_sensitive_confirmation"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><div class="switch-row"><input id="require-sensitive-password" type="checkbox" name="require_sensitive_password" value="1"<?= $requireSensitivePassword ? ' checked' : '' ?>><label for="require-sensitive-password"><strong>Require current password for every sensitive action</strong><br><small>Recommended on every shared or remotely accessible device.</small></label></div><label>Current password to save this setting</label><input type="password" name="current_password" autocomplete="current-password" required><button type="submit">Save security setting</button></form><?php endif; ?></div>
+<div class="profile-section"><h3>Account deletion</h3><?php if (!$deletionEnabled): ?><p class="muted">Account deletion is disabled by the server owner.</p><?php elseif ($deletionStatus === null): ?><p class="muted">Account deletion settings are temporarily unavailable.</p><?php elseif ((int) $deletionStatus['deletionScheduledAt'] > 0): ?><div class="scheduled"><strong>Deletion scheduled</strong><br><span class="muted"><?= $escape(gmdate('Y-m-d H:i', (int) $deletionStatus['deletionScheduledAt'])) ?> UTC</span></div><p class="muted">Your account remains active until that date.</p><form method="post"><input type="hidden" name="action" value="cancel_deletion"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><?php if ($requireSensitivePassword): ?><label>Current password</label><input type="password" name="current_password" autocomplete="current-password" required><?php endif; ?><button type="submit" class="secondary">Cancel deletion</button></form><?php else: ?><p class="muted">Choose how long the account remains active. Credentials and email are anonymized after the deadline; published levels remain.</p><?php if (!$requireSensitivePassword): ?><div class="warning">Per-action password confirmation is disabled. Exact username confirmation is still mandatory.</div><?php endif; ?><form method="post"><input type="hidden" name="action" value="schedule_deletion"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><label>Delete after</label><select name="retention_days" required><?php foreach ($deletion->retentionOptions() as $days): ?><option value="<?= $days ?>"<?= $days === 14 ? ' selected' : '' ?>><?= $days ?> days</option><?php endforeach; ?></select><?php if ($requireSensitivePassword): ?><label>Current password</label><input type="password" name="current_password" autocomplete="current-password" required><?php endif; ?><label>Type your username to confirm</label><input type="text" name="confirm_username" maxlength="20" autocomplete="off" required><button type="submit" class="danger">Schedule account deletion</button></form><?php endif; ?></div>
 <?php else: ?>
 <div class="tabs" role="tablist"><button type="button" class="tab" data-auth-tab="login" role="tab">Sign in</button><button type="button" class="tab" data-auth-tab="register" role="tab">Register</button></div>
-<section class="auth-panel" data-auth-panel="login"><p class="muted">Use the same username and password as in Geometry Dash. Passwords are verified on the server and are not stored in the browser session.</p><form method="post"><input type="hidden" name="action" value="login"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><label>Username</label><input type="text" name="username" maxlength="20" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button type="submit">Sign in</button></form></section>
-<section class="auth-panel" data-auth-panel="register" hidden><p class="muted">Creates a normal GDPS account using the same account database and password protection as the game.</p><form method="post"><input type="hidden" name="action" value="register"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><label>Username</label><input type="text" name="username" maxlength="20" pattern="[A-Za-z0-9_]+" autocomplete="username" required><label>Email</label><input type="email" name="email" maxlength="255" autocomplete="email" required><label>Password</label><input type="password" name="password" maxlength="128" autocomplete="new-password" required><label>Repeat password</label><input type="password" name="password_confirm" maxlength="128" autocomplete="new-password" required><small>Registration is protected automatically by the server.</small><br><button type="submit">Create account</button></form></section>
-<?php endif; ?>
-</div>
-</dialog>
+<section class="auth-panel" data-auth-panel="login"><p class="muted">Use the same username and password as in Geometry Dash.</p><form method="post"><input type="hidden" name="action" value="login"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><label>Username</label><input type="text" name="username" maxlength="20" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button type="submit">Sign in</button></form></section>
+<section class="auth-panel" data-auth-panel="register" hidden><p class="muted">Creates a normal account in this GDPS.</p><form method="post"><input type="hidden" name="action" value="register"><input type="hidden" name="csrf" value="<?= $escape($csrfValue) ?>"><label>Username</label><input type="text" name="username" maxlength="20" pattern="[A-Za-z0-9_]+" autocomplete="username" required><label>Email</label><input type="email" name="email" maxlength="255" autocomplete="email" required><label>Password</label><input type="password" name="password" maxlength="128" autocomplete="new-password" required><label>Repeat password</label><input type="password" name="password_confirm" maxlength="128" autocomplete="new-password" required><button type="submit">Create account</button></form></section>
+<?php endif; ?></div></dialog>
 </main>
-<script>
+<script nonce="<?= $escape($nonce) ?>">
 (() => {
     const dialog = document.getElementById('account-dialog');
     if (!dialog) return;

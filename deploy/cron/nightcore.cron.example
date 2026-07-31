@@ -1,0 +1,5 @@
+# Night Core scheduled workers.
+# Install as /etc/cron.d/nightcore and adjust PHP or project paths when needed.
+# The worker is a safe no-op while account deletion is disabled in config2.php.
+
+17 * * * * www-data cd /var/www/nightcore && /usr/bin/php bin/nightcore accounts:purge-due >> /var/log/nightcore-account-purge.log 2>&1

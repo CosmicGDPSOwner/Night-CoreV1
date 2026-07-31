@@ -89,6 +89,9 @@ jobs:
       - name: Web security module
         run: php tests/web_security.php
 
+      - name: Deployment documentation
+        run: php tests/deployment_docs.php
+
       - name: Event reward claims
         run: php tests/event_reward_claims.php
 

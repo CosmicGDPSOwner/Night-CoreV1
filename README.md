@@ -36,8 +36,8 @@ The compatibility reference remains `Cvolton/GMDprivateServer` at commit `719dfe
 
 The canonical public dashboard provides two tabs:
 
-- **Songs / SFX** — public read-only libraries; uploads appear only after an active, non-banned GDPS account signs in;
-- **Daily / Weekly / Event** — public current rotation cards in `name / author / #ID` format.
+- **Songs / SFX** - public read-only libraries; uploads appear only after an active, non-banned GDPS account signs in;
+- **Daily / Weekly / Event** - public current rotation cards in `name / author / #ID` format.
 
 The account dialog supports registration, sign-in, profile security preferences, scheduled account deletion when enabled, and sign-out. `/mediaAdmin.php` remains a compatibility redirect to `/dashboard.php`.
 
@@ -90,13 +90,30 @@ A timeout value of `0` disables that timeout. Setting both session values to `0`
 
 ### `config/media.php`
 
-Copy `config/media.php.example` to configure public authenticated uploads, per-file limits and private upload safeguards. The dashboard does not disclose connection/cooldown/quota values. See `docs/MEDIA_DASHBOARD.md`.
+Copy `config/media.php.example` to configure authenticated public uploads, per-file limits and private upload safeguards. The dashboard does not disclose cooldown or quota values. See `docs/MEDIA_DASHBOARD.md`.
 
 ### `.env`
 
 Start from `.env.production.example`. Keep database credentials, hash keys and `CORE_ADMIN_ACCOUNT_IDS` private. Never commit the production `.env`.
 
-## Production commands
+## Production deployment
+
+The complete VPS procedure is in `docs/DEPLOYMENT.md`. It covers:
+
+- DNS and system packages;
+- MariaDB database creation;
+- `.env`, `config2.php` and media configuration;
+- runtime storage permissions;
+- Nginx and PHP-FPM;
+- HTTPS, firewall and Cloudflare;
+- owner setup and cron;
+- health checks and real-client validation;
+- Newgrounds diagnostics;
+- updates, backup and recovery.
+
+Ready-to-copy operator examples are under `deploy/`.
+
+Main commands:
 
 ```bash
 php bin/nightcore install
@@ -110,12 +127,6 @@ When account deletion is enabled, run the worker periodically:
 
 ```bash
 php bin/nightcore accounts:purge-due
-```
-
-Example hourly cron:
-
-```cron
-17 * * * * cd /var/www/nightcore && /usr/bin/php bin/nightcore accounts:purge-due >/dev/null 2>&1
 ```
 
 ## Local test
@@ -137,11 +148,21 @@ The CI baseline additionally checks syntax, web security, account-comment wire f
 
 ## Documentation
 
-- `docs/WEB_SECURITY.md` — shared browser-panel protection;
-- `docs/CONFIG2.md` — private deletion/session policy;
-- `docs/DASHBOARD_ACCOUNT_PANEL.md` — account profile and lifecycle;
-- `docs/MEDIA_DASHBOARD.md` — authenticated media library;
-- `docs/STAFF_RBAC.md` — roles, permissions and commands;
-- `docs/EVENTS.md` — Daily/Weekly/Event behavior.
+Deployment and operations:
+
+- `docs/DEPLOYMENT.md` - full VPS installation;
+- `docs/SHARED_HOSTING.md` - constrained shared-hosting installation;
+- `docs/UPDATING.md` - safe production updates;
+- `docs/BACKUP_AND_RECOVERY.md` - backup and restoration;
+- `docs/DEPLOYMENT_CHECKLIST.md` - final operator checklist.
+
+Features and security:
+
+- `docs/WEB_SECURITY.md` - shared browser-panel protection;
+- `docs/CONFIG2.md` - private deletion/session policy;
+- `docs/DASHBOARD_ACCOUNT_PANEL.md` - account profile and lifecycle;
+- `docs/MEDIA_DASHBOARD.md` - authenticated media library;
+- `docs/STAFF_RBAC.md` - roles, permissions and commands;
+- `docs/EVENTS.md` - Daily/Weekly/Event behavior.
 
 Russian translations live in `docs/ru/`.

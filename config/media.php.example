@@ -5,14 +5,17 @@ declare(strict_types=1);
 // Copy this file to config/media.php on the server.
 // config/media.php is intentionally ignored by Git so local owner settings survive updates.
 return [
-    // Public page /mediaAdmin.php accepts uploads without an admin token when enabled.
+    // true enables upload forms in /dashboard.php for authenticated active GDPS accounts.
+    // Public song and SFX libraries remain readable while logged out.
+    // This setting does not enable anonymous uploads.
     'public_uploads' => false,
 
     // Per-file limits enforced by Night Core. Infrastructure limits in PHP/Nginx may be lower.
     'song_max_mib' => 25,
     'sfx_max_mib' => 10,
 
-    // Anonymous upload abuse protection. Set an individual numeric limit to 0 to disable only that limit.
+    // Private abuse-protection values. Public pages do not display these thresholds.
+    // Set an individual numeric limit to 0 to disable only that limit.
     'upload_cooldown_seconds' => 30,
     'uploads_per_hour_per_ip' => 10,
     'global_uploads_per_hour' => 200,

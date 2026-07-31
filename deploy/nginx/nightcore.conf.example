@@ -1,0 +1,43 @@
+# Night Core Nginx virtual host.
+# Replace CHANGE_ME_GDPS_DOMAIN and CHANGE_ME_PHP_FPM_SOCKET.
+# The PHP-FPM value must include unix:, for example:
+# unix:/run/php/php8.5-fpm.sock
+
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name CHANGE_ME_GDPS_DOMAIN;
+
+    root /var/www/nightcore/public;
+    index index.php;
+
+    client_max_body_size 32m;
+
+    access_log /var/log/nginx/nightcore.access.log;
+    error_log /var/log/nginx/nightcore.error.log;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $document_root;
+        fastcgi_param HTTPS $https if_not_empty;
+
+        fastcgi_read_timeout 60s;
+        fastcgi_pass CHANGE_ME_PHP_FPM_SOCKET;
+    }
+
+    location ~ /\.(?!well-known/) {
+        deny all;
+    }
+
+    location ~* \.(?:env|ini|log|sql|bak|save|swp)$ {
+        deny all;
+    }
+}

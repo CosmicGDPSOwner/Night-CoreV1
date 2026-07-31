@@ -113,6 +113,12 @@ try {
         $assert(is_string($source) && str_contains($source, '<style nonce='), $panelFile . ' applies nonce to style block');
         $assert(is_string($source) && !str_contains($source, 'onsubmit='), $panelFile . ' has no inline submit handler');
         $assert(is_string($source) && !str_contains($source, 'onclick='), $panelFile . ' has no inline click handler');
+        if (in_array($panelFile, ['staffAdmin.php', 'eventAdmin.php'], true)) {
+            $assert(
+                is_string($source) && str_contains($source, "->raw('core_staff_admin_login_attempts')"),
+                $panelFile . ' passes an unquoted validated table name to PanelLoginThrottle'
+            );
+        }
     }
 } catch (Throwable $error) {
     $failures[] = 'exception: ' . $error->getMessage();

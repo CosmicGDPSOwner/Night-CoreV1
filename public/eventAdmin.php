@@ -63,7 +63,7 @@ $canView = static function (int $id) use ($staff): bool {
 $loginTableAvailable = $app->schema()->tableExists('core_staff_admin_login_attempts');
 $loginThrottle = new PanelLoginThrottle(
     $db,
-    $tables->get('core_staff_admin_login_attempts'),
+    $tables->raw('core_staff_admin_login_attempts'),
     'event',
     ClientIp::detect(Config::getBool('TRUST_PROXY_HEADERS', false))
 );

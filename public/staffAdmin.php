@@ -53,7 +53,7 @@ $color = static function (mixed $value): string {
     return strtolower($value);
 };
 
-$loginTable = $tables->get('core_staff_admin_login_attempts');
+$loginTable = $tables->raw('core_staff_admin_login_attempts');
 $auditTable = $tables->get('core_staff_admin_audit');
 $securityTablesAvailable = $app->schema()->tableExists('core_staff_admin_login_attempts')
     && $app->schema()->tableExists('core_staff_admin_audit');

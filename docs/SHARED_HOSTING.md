@@ -1,74 +1,128 @@
-# Shared-hosting test deployment
+# Night Core on shared hosting
 
-This path is intended only for temporary Night Core validation when a cheap/free shared host forces the account web root to contain all application files.
+[Русская версия](ru/SHARED_HOSTING.md)
 
-Production deployments should still use the normal `public/` document root described in `docs/DEPLOYMENT.md`.
+Use this path only when the provider cannot point the document root to `public/`.
 
-## Layout
+A VPS deployment from `docs/DEPLOYMENT.md` is preferred.
 
-Upload the repository contents directly into the hosting document root, for example `htdocs/`:
+The provider must support PHP 8.1+, PDO MySQL, `.htaccess`, Apache rewrite rules, writable local directories and a database.
+
+Geometry Dash cannot pass a mandatory browser JavaScript challenge. A host that injects such a challenge is not suitable for a GDPS API.
+
+## 1. Upload the repository
+
+Upload all repository files into the hosting root, for example `htdocs/`.
+
+Keep the root `.htaccess`. It exposes only files that exist under `public/`.
+
+## 2. Verify private-path blocking
+
+These paths must return 404:
 
 ```text
-htdocs/
-  .htaccess
-  .env
-  autoload.php
-  bootstrap.php
-  migrations/
-  public/
-  src/
-  data/
-  ...
+/.env
+/bootstrap.php
+/src/
+/migrations/
+/data/
+/docs/
+/tests/
 ```
 
-The root `.htaccess` exposes only files that exist below `public/`. Requests for `bootstrap.php`, `.env`, `src/`, `migrations/`, `data/`, and other repository files return HTTP 404.
+Stop immediately if any private path is downloadable.
 
-Geometry Dash endpoints remain available at their normal root paths. For example, a request to `/health.php` is internally served from `public/health.php`.
+## 3. Configure `.env`
 
-## Configuration
+Copy `.env.shared.example` to `.env` and configure database credentials, unique registration and panel HMAC keys, and a temporary browser-installer token.
 
-Copy `.env.shared.example` to `.env` and set the host-provided database values:
+```env
+APP_ENV=staging
+APP_DEBUG=0
 
-```text
-DB_HOST=...
+DB_HOST=CHANGE_ME
 DB_PORT=3306
-DB_NAME=...
-DB_USER=...
-DB_PASS=...
+DB_NAME=CHANGE_ME
+DB_USER=CHANGE_ME
+DB_PASS=CHANGE_ME
+
+REGISTRATION_IP_HASH_KEY=CHANGE_ME_RANDOM_KEY_1
+PANEL_SECURITY_HASH_KEY=CHANGE_ME_RANDOM_KEY_2
+
+TRUST_PROXY_HEADERS=0
+WEB_INSTALL_TOKEN=CHANGE_ME_LONG_RANDOM_ONE_TIME_TOKEN
 ```
 
-Leave `LEVEL_STORAGE_PATH=` blank so Night Core uses `data/levels` below the repository root. The shared-host root guard prevents HTTP access to that directory.
+## 4. Storage
 
-Set a temporary long random `WEB_INSTALL_TOKEN`.
-
-## Browser installer
-
-Open `/install.php` in the browser. Enter `WEB_INSTALL_TOKEN` in the form and submit it.
-
-The installer:
-
-- creates/checks level storage;
-- applies ordered Night Core SQL migrations;
-- runs the same critical deployment checks used by the CLI installer.
-
-After it reports `Installation checks: OK`, immediately edit `.env` and set:
+Blank storage paths use protected repository-local directories:
 
 ```text
+data/levels
+data/songs
+data/sfx
+```
+
+PHP must be able to write them. Do not use permissions broader than the provider requires.
+
+## 5. Private config
+
+Copy:
+
+```text
+config2.example.php -> config2.php
+config/media.php.example -> config/media.php
+```
+
+`public_uploads=true` enables uploads for authenticated active GDPS accounts, not anonymous visitors.
+
+## 6. Browser installer
+
+Open `/install.php`, enter `WEB_INSTALL_TOKEN` and run the installer.
+
+After `Installation checks: OK`, immediately clear:
+
+```env
 WEB_INSTALL_TOKEN=
 ```
 
-With an empty token, `/install.php` returns 404 and cannot run migrations.
+With an empty token, `/install.php` must return 404.
 
-## Validation
-
-Verify:
+## 7. Validate
 
 ```text
-/health.php  -> HTTP 200, ok
-/ready.php   -> HTTP 200, ready
-/info.php    -> Night Core metadata
+/health.php -> HTTP 200, ok
+/ready.php -> HTTP 200, ready
+/info.php -> Night Core metadata
+/dashboard.php -> HTTP 200
+/staffAdmin.php -> HTTP 200
+/eventAdmin.php -> HTTP 200
 ```
 
-Also verify that private paths such as `/bootstrap.php`, `/src/`, and `/migrations/` return 404.
+Verify private paths still return 404.
 
-Only after these checks should a test Geometry Dash 2.2 client be pointed at the shared-hosting domain.
+## 8. Owner and cron
+
+Find the owner account ID in phpMyAdmin:
+
+```sql
+SELECT accountID, userName, isActive
+FROM accounts
+ORDER BY accountID;
+```
+
+Set `CORE_ADMIN_ACCOUNT_IDS` in `.env`.
+
+When the provider has a scheduler, run:
+
+```text
+php /absolute/path/to/bin/nightcore accounts:purge-due
+```
+
+Keep account deletion disabled when no safe worker can run.
+
+## 9. Newgrounds and updates
+
+Outbound HTTPS and PHP cURL or `allow_url_fopen` are required for Newgrounds. Some shared hosts return 403.
+
+Before every manual update, export the database, download `data/`, and preserve `.env`, `config2.php` and `config/media.php`.
